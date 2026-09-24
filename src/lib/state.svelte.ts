@@ -35,6 +35,8 @@ class LauncherState {
 	news = $state<NewsItem[]>([]);
 	/** Nouvelle version du launcher, et progression de son installation. */
 	launcherUpdate = $state<LauncherUpdate | null>(null);
+	/** Recherche lancée depuis Options : son résultat, affiché sous le bouton. */
+	updateCheck = $state<'idle' | 'checking' | 'uptodate' | 'found' | 'error'>('idle');
 	updating = $state<{ done: number; total: number } | null>(null);
 	updateError = $state<string | null>(null);
 
@@ -123,6 +125,21 @@ class LauncherState {
 		} catch (e) {
 			this.running = false;
 			this.error = String(e);
+		}
+	}
+
+	/** Recherche à la demande (Options) ; au démarrage, elle se fait en silence. */
+	async checkLauncherUpdate() {
+		this.updateCheck = 'checking';
+		this.updateError = null;
+		try {
+			// Une réponse trop rapide ressemble à un bouton qui n'a rien fait.
+			const [u] = await Promise.all([api.launcherUpdateCheck(), new Promise((r) => setTimeout(r, 600))]);
+			this.launcherUpdate = u;
+			this.updateCheck = u ? 'found' : 'uptodate';
+		} catch (e) {
+			this.updateError = String(e);
+			this.updateCheck = 'error';
 		}
 	}
 

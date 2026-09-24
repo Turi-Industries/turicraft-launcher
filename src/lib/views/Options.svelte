@@ -43,6 +43,37 @@
 	{/if}
 
 	<div class="panel">
+		<div class="section-title">Launcher</div>
+		<div class="repair">
+			<div>
+				<strong>Version {L.ov?.launcher_version ?? '…'}</strong>
+				<div class="hint">
+					{#if L.updating}Téléchargement… le launcher redémarre tout seul ensuite.
+					{:else if L.updateCheck === 'checking'}Recherche en cours…
+					{:else if L.launcherUpdate}Nouvelle version disponible : <strong>{L.launcherUpdate.version}</strong>
+					{:else if L.updateCheck === 'uptodate'}Tu as la dernière version.
+					{:else if L.updateCheck === 'error'}Impossible de vérifier pour l’instant : {L.updateError}
+					{:else}Le launcher vérifie aussi tout seul à chaque ouverture.{/if}
+				</div>
+				{#if L.updating}
+					<div class="bar" class:indeterminate={L.updating.total === 0}>
+						<div style="width: {L.updating.total ? (L.updating.done / L.updating.total) * 100 : 0}%"></div>
+					</div>
+				{/if}
+			</div>
+			{#if L.launcherUpdate}
+				<button class="mc-btn small" onclick={() => L.installLauncherUpdate()} disabled={!!L.updating || L.running}
+					>Mettre à jour</button
+				>
+			{:else}
+				<button class="mc-btn small" onclick={() => L.checkLauncherUpdate()} disabled={L.updateCheck === 'checking'}
+					>Rechercher une mise à jour</button
+				>
+			{/if}
+		</div>
+	</div>
+
+	<div class="panel">
 		<div class="section-title">Dossiers</div>
 		<div class="row">
 			<button class="mc-btn small" onclick={() => api.openFolder('instance')}>Dossier du jeu</button>
@@ -98,6 +129,21 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 16px;
+	}
+	.bar {
+		height: 8px;
+		margin-top: 6px;
+		background: #000;
+		border: 2px solid #4b4b4b;
+		overflow: hidden;
+	}
+	.bar > div {
+		height: 100%;
+		background: var(--yellow);
+		transition: width 0.3s linear;
+	}
+	.bar.indeterminate > div {
+		width: 30% !important;
 	}
 	.about {
 		user-select: text;
