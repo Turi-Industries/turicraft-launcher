@@ -90,6 +90,9 @@ jobs:
               mv "$f" "${f/.app.tar.gz/_${arch}.app.tar.gz}"
             done
           fi
+          # Pas d'espace dans les noms : GitHub les change en points, et
+          # latest.json pointerait vers des fichiers qui n'existent pas.
+          for f in out/*; do mv "$f" "$(dirname "$f")/$(basename "$f" | tr ' ' '-')"; done
           ls -la out
       - uses: actions/upload-artifact@v4
         with:
@@ -108,6 +111,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      # checkout ne rapporte que le commit : sans l'objet du tag annoté, son
+      # message (les notes pour les joueurs) serait celui du commit.
+      - run: git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
       - uses: actions/download-artifact@v4
         with:
           path: out
