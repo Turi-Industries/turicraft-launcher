@@ -34,7 +34,8 @@ PY
 (cd src-tauri && cargo update -q -p turicraft-launcher --offline 2>/dev/null || cargo generate-lockfile -q)
 
 git add src-tauri/tauri.conf.json package.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-git commit -q -m "version $VERSION"
+# Rien à commiter si la version y est déjà (la toute première, par exemple).
+git diff --cached --quiet || git commit -q -m "version $VERSION"
 git tag -a "v$VERSION" -m "$NOTES"
 git push -q origin HEAD "v$VERSION"
 echo "v$VERSION poussé : la CI construit et publie (Actions → CI)."
