@@ -1,0 +1,285 @@
+/* Direction artistique : celle des menus du jeu — Minecraft (boutons gris
+   biseautés, texte ombré), touche de noir et de jaune. Règles d'ergonomie :
+   skill launcher-ux. La police pixel ne sert qu'aux titres et à « Jouer ». */
+
+:root {
+	--bg: #121316;
+	--bg-side: #0b0c0e;
+	--panel: rgba(0, 0, 0, 0.45);
+	--panel-strong: rgba(0, 0, 0, 0.7);
+	--line: #2a2c31;
+	--line-strong: #3d4047;
+	--text: #f1f1f1;
+	--text-dim: #a3a6ad;
+	--text-faint: #6f737b;
+	--yellow: #f5c518;
+	--yellow-soft: #ffe066;
+	--green: #5fd35f;
+	--red: #ff6b6b;
+	--btn: #6f6f6f;
+	--btn-top: #a0a0a0;
+	--btn-bottom: #3c3c3c;
+	--btn-hover: #7e7e7e;
+	--pixel: 'Silkscreen', ui-monospace, monospace;
+	--sans: system-ui, -apple-system, 'Segoe UI', 'Noto Sans', Roboto, sans-serif;
+	--radius: 0px; /* Minecraft : angles droits */
+	color-scheme: dark;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: var(--bg);
+	color: var(--text);
+	font: 14px/1.45 var(--sans);
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+button {
+	font: inherit;
+	color: inherit;
+}
+
+h1,
+h2,
+h3 {
+	margin: 0;
+	font-weight: 600;
+}
+
+/* ─── Fenêtre : barre latérale + contenu ──────────────────────────────── */
+.app {
+	display: grid;
+	grid-template-columns: 210px minmax(0, 1fr);
+	height: 100vh;
+	width: 100vw;
+}
+.app > main {
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	background:
+		radial-gradient(ellipse at 70% -10%, rgba(245, 197, 24, 0.06), transparent 55%),
+		var(--bg);
+}
+/* Chaque écran défile lui-même (.page, .scroll) ; si la grille venait à
+   manquer, la fenêtre entière défile au lieu de tout figer. */
+@supports not (display: grid) {
+	html,
+	body {
+		overflow: auto;
+	}
+}
+
+/* Chaque écran (Qualité, Options, Journal) : marges et défilement ici, pas
+   dans le composant — même raison que la grille ci-dessus. */
+.page {
+	padding: 20px 24px;
+	overflow: auto;
+	height: 100%;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+/* ─── Bouton Minecraft ─────────────────────────────────────────────────── */
+.mc-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 36px;
+	padding: 0 16px;
+	white-space: nowrap; /* jamais sur deux lignes */
+	background: var(--btn);
+	border: 2px solid #000;
+	box-shadow:
+		inset 0 2px 0 var(--btn-top),
+		inset 0 -3px 0 var(--btn-bottom);
+	color: #fff;
+	text-shadow: 1px 1px 0 #333;
+	font-weight: 600;
+	cursor: pointer;
+}
+.mc-btn:hover:not(:disabled) {
+	background: var(--btn-hover);
+	color: var(--yellow-soft);
+	border-color: #fff;
+}
+.mc-btn:active:not(:disabled) {
+	box-shadow:
+		inset 0 3px 0 var(--btn-bottom),
+		inset 0 -2px 0 var(--btn-top);
+}
+.mc-btn:disabled {
+	background: #2c2c2c;
+	color: #8a8a8a;
+	box-shadow: none;
+	cursor: default;
+}
+.mc-btn.small {
+	min-height: 30px;
+	padding: 0 12px;
+	font-size: 13px;
+}
+.mc-btn.danger:hover:not(:disabled) {
+	color: #ffb3b3;
+	border-color: var(--red);
+}
+
+/* Lien discret, pour les actions secondaires */
+.link {
+	background: none;
+	border: none;
+	padding: 0;
+	color: var(--text-dim);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.link:hover {
+	color: var(--yellow-soft);
+}
+
+/* ─── Contrôle segmenté ────────────────────────────────────────────────── */
+.segmented {
+	display: inline-flex;
+	border: 2px solid #000;
+	background: #000;
+	gap: 2px;
+}
+.segmented button {
+	border: none;
+	background: #2b2d31;
+	color: var(--text-dim);
+	padding: 6px 16px;
+	cursor: pointer;
+	white-space: nowrap;
+	font-weight: 600;
+}
+.segmented button:hover {
+	color: var(--text);
+}
+.segmented button.on {
+	background: var(--btn);
+	color: var(--yellow-soft);
+	box-shadow: inset 0 2px 0 var(--btn-top), inset 0 -2px 0 var(--btn-bottom);
+}
+
+/* ─── Interrupteur ─────────────────────────────────────────────────────── */
+.switch {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 10px 0;
+	cursor: pointer;
+}
+.switch input[type='checkbox'] {
+	appearance: none;
+	flex: none;
+	width: 40px;
+	height: 22px;
+	background: #2b2d31;
+	border: 2px solid #000;
+	position: relative;
+	cursor: pointer;
+}
+.switch input[type='checkbox']::after {
+	content: '';
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 14px;
+	height: 14px;
+	background: #8a8a8a;
+	transition: left 0.12s;
+}
+.switch input[type='checkbox']:checked {
+	background: #4a3d0a;
+}
+.switch input[type='checkbox']:checked::after {
+	left: 20px;
+	background: var(--yellow);
+}
+
+/* ─── Choix unique (liste de radios) ───────────────────────────────────── */
+.choice {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 8px 0;
+	cursor: pointer;
+}
+.choice input {
+	accent-color: var(--yellow);
+	margin-top: 3px;
+}
+
+/* Cases ordinaires (l'interrupteur .switch a son propre style, plus précis). */
+input[type='checkbox'] {
+	accent-color: var(--yellow);
+	width: 16px;
+	height: 16px;
+	flex: none;
+}
+input[type='range'] {
+	accent-color: var(--yellow);
+	width: 100%;
+}
+
+/* ─── Panneaux ─────────────────────────────────────────────────────────── */
+.panel {
+	background: var(--panel);
+	border: 2px solid #000;
+	box-shadow: inset 0 0 0 1px var(--line);
+	padding: 16px 18px;
+}
+.section-title {
+	font-family: var(--pixel);
+	font-size: 14px;
+	color: var(--yellow);
+	letter-spacing: 0.5px;
+	margin-bottom: 10px;
+}
+.hint {
+	color: var(--text-dim);
+	font-size: 13px;
+}
+.faint {
+	color: var(--text-faint);
+	font-size: 12px;
+}
+
+pre {
+	white-space: pre-wrap;
+	word-break: break-word;
+	font: 12px/1.5 ui-monospace, 'JetBrains Mono', monospace;
+	background: #000;
+	border: 1px solid var(--line);
+	padding: 10px;
+	margin: 0;
+	user-select: text;
+}
+
+:focus-visible {
+	outline: 2px solid var(--yellow);
+	outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+	width: 10px;
+}
+::-webkit-scrollbar-thumb {
+	background: #34363b;
+	border: 2px solid var(--bg);
+}

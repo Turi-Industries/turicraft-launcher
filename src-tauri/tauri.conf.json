@@ -1,0 +1,67 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Turi Craft",
+  "mainBinaryName": "turicraft-launcher",
+  "version": "0.1.0",
+  "identifier": "eu.turi-industries.launcher",
+  "build": {
+    "frontendDist": "../build",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Turi Craft",
+        "width": 960,
+        "height": 640,
+        "minWidth": 820,
+        "minHeight": 560,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "appimage",
+      "nsis",
+      "dmg",
+      "app"
+    ],
+    "category": "Game",
+    "shortDescription": "Launcher du modpack Turi Craft",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "signingIdentity": "-"
+    },
+    "publisher": "Turi Industries",
+    "copyright": "© Turi Industries — GPL-3.0-or-later",
+    "license": "GPL-3.0-or-later",
+    "homepage": "https://github.com/Turi-Industries/turicraft-launcher"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRFNzQxMzVGODI5NDI5RDEKUldUUktaU0NYeE4wVHNNb09iakVCWUtaS3BtZ3l5OTVEeG5aVk5IbXcyb3oyY2RVWEpzWkhCdWsK",
+      "endpoints": [
+        "https://pack.turi-industries.eu/launcher/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

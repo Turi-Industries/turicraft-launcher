@@ -1,0 +1,124 @@
+name: CI
+
+# Vérifications à chaque modification. Construction des installeurs sur un
+# tag vX.Y.Z (scripts/release.sh), ou à la main.
+
+on:
+  push:
+    # `branches` obligatoire : un `push` qui ne liste que `tags` ignore les
+    # pushes de branche.
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Tests et types
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: "src-tauri -> target" }
+      - name: Dépendances système de Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev
+      - run: bun install --frozen-lockfile
+      - name: Types (svelte-check)
+        run: bun run check
+      - name: Interface
+        run: bun run build
+      # Les tests lisent fixtures/presets.toml, copie de celui du pack.
+      - name: Tests du cœur
+        working-directory: src-tauri
+        run: cargo test --lib
+
+  build:
+    name: Installeur ${{ matrix.name }}
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux, os: ubuntu-22.04, args: "" }
+          - { name: Windows, os: windows-latest, args: "" }
+          - { name: macOS (Apple), os: macos-latest, args: "--target aarch64-apple-darwin" }
+          - { name: macOS (Intel), os: macos-latest, args: "--target x86_64-apple-darwin" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ contains(matrix.args, 'darwin') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: "src-tauri -> target" }
+      - name: Dépendances système de Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev
+      - run: bun install --frozen-lockfile
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          # Clé PRIVÉE de mise à jour (tauri signer) : secret GitHub. Sans elle,
+          # pas de .sig, et les launchers installés refusent la mise à jour.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          tauriScript: bunx tauri
+          args: ${{ matrix.args }}
+      # Installeurs (première installation) et fichiers de mise à jour signés.
+      - name: Rassembler les fichiers
+        shell: bash
+        run: |
+          mkdir -p out
+          find src-tauri/target -path '*/release/bundle/*' -type f \
+            \( -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.deb' \
+               -o -name '*-setup.exe' -o -name '*-setup.exe.sig' \
+               -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) \
+            -exec cp {} out/ \;
+          # Les deux Mac produisent le même nom : on y met l'architecture.
+          if [[ "${{ matrix.args }}" == *darwin* ]]; then
+            arch=$([[ "${{ matrix.args }}" == *aarch64* ]] && echo aarch64 || echo x64)
+            for f in out/*.app.tar.gz out/*.app.tar.gz.sig; do
+              [ -e "$f" ] || continue
+              mv "$f" "${f/.app.tar.gz/_${arch}.app.tar.gz}"
+            done
+          fi
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-${{ matrix.name }}
+          path: out/*
+
+  # Sur un tag vX.Y.Z : une version GitHub avec tous les fichiers et
+  # latest.json. Le serveur du pack la recopie et la sert (plugins.updater
+  # dans tauri.conf.json).
+  publish:
+    name: Publier la version
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: latest.json
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | sed '/-----BEGIN/,$d')"
+          python3 scripts/latest-json.py out "$version" "${notes:-Launcher $version}" > out/latest.json
+          cat out/latest.json
+      - name: Version GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" out/* --title "Launcher ${GITHUB_REF_NAME#v}" --notes-file <(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")

@@ -1,0 +1,45 @@
+[package]
+name = "turicraft-launcher"
+version = "0.1.0"
+description = "Launcher du modpack Turi Craft"
+authors = ["Turi Industries"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Turi-Industries/turicraft-launcher"
+edition = "2021"
+rust-version = "1.77.2"
+# Deux exécutables : l'application (main.rs) et turicraft-cli, qui passe par
+# le même code sans interface — c'est lui qui sert aux essais sur une machine
+# sans écran, et au diagnostic chez un joueur.
+default-run = "turicraft-launcher"
+
+[lib]
+name = "turicraft_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.6", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+futures = "0.3"
+sha1 = "0.10"
+sha2 = "0.10"
+hex = "0.4"
+toml = "0.8"
+toml_edit = "0.22"
+sysinfo = "0.33"
+dirs = "6"
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+md-5 = "0.10"
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }

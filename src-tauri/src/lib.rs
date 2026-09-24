@@ -1,0 +1,441 @@
+//! Launcher Turi Craft — cœur (Rust) et commandes appelées par l'interface.
+
+pub mod auth;
+pub mod config;
+pub mod diag;
+pub mod display;
+pub mod hardware;
+pub mod java;
+pub mod launch;
+pub mod minecraft;
+pub mod neoforge;
+pub mod net;
+pub mod packwiz;
+pub mod paths;
+pub mod ping;
+pub mod presets;
+pub mod progress;
+pub mod settings;
+pub mod skin;
+pub mod updates;
+
+use std::sync::{Arc, Mutex};
+
+use serde::Serialize;
+use tauri::async_runtime::JoinHandle;
+use tauri::window::{ProgressBarState, ProgressBarStatus};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::UpdaterExt;
+
+use paths::Paths;
+use progress::{Event, Reporter};
+use settings::{Account, Settings};
+
+struct AppState {
+    paths: Paths,
+    settings: Mutex<Settings>,
+    device_code: Mutex<Option<auth::DeviceCode>>,
+    /// Le parcours de « Jouer » en cours : l'abandonner arrête la préparation
+    /// ou le jeu (les processus sont en kill_on_drop).
+    task: Mutex<Option<JoinHandle<()>>>,
+    /// Connexion par le navigateur en attente (annulable).
+    login: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+/// Envoie les événements du cœur à l'interface, et tient la fenêtre au courant :
+/// progression dans la barre des tâches, fenêtre réduite ou cachée quand le
+/// jeu est au menu, rappelée quand il se ferme.
+struct TauriReporter {
+    app: AppHandle,
+    behavior: String,
+}
+
+impl TauriReporter {
+    fn window(&self) -> Option<tauri::WebviewWindow> {
+        self.app.get_webview_window("main")
+    }
+    fn taskbar(&self, status: ProgressBarStatus, progress: Option<u64>) {
+        if let Some(w) = self.window() {
+            let _ = w.set_progress_bar(ProgressBarState { status: Some(status), progress });
+        }
+    }
+}
+
+impl Reporter for TauriReporter {
+    fn send(&self, event: Event) {
+        match &event {
+            Event::Progress { done, total } if *total > 0 => {
+                self.taskbar(ProgressBarStatus::Normal, Some(done * 100 / total))
+            }
+            Event::Milestone { index, count, .. } => {
+                self.taskbar(ProgressBarStatus::Normal, Some(((index + 1) * 100 / count) as u64))
+            }
+            Event::GameReady { .. } => {
+                self.taskbar(ProgressBarStatus::None, None);
+                if let Some(w) = self.window() {
+                    match self.behavior.as_str() {
+                        "garder" => {}
+                        "fermer" => {
+                            let _ = w.hide();
+                        }
+                        _ => {
+                            let _ = w.minimize();
+                        }
+                    }
+                }
+            }
+            Event::GameExited { code, .. } => {
+                self.taskbar(ProgressBarStatus::None, None);
+                // « Fermer » : on quitte avec le jeu, sauf s'il a planté —
+                // le joueur doit voir le rapport.
+                if self.behavior == "fermer" && *code == Some(0) {
+                    self.app.exit(0);
+                    return;
+                }
+                if let Some(w) = self.window() {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+            }
+            _ => {}
+        }
+        let _ = self.app.emit("launcher", event);
+    }
+}
+
+type CmdResult<T> = Result<T, String>;
+fn err(e: anyhow::Error) -> String {
+    format!("{e:#}")
+}
+
+#[derive(Serialize)]
+struct Overview {
+    settings: Settings,
+    hardware: hardware::Hardware,
+    pack_version: Option<String>,
+    /// Mode hors ligne des essais (TURICRAFT_OFFLINE_NAME), sinon absent.
+    offline_name: Option<String>,
+    data_dir: String,
+    disk_free_gb: Option<f64>,
+    launcher_version: &'static str,
+}
+
+#[tauri::command]
+fn overview(state: State<'_, Arc<AppState>>) -> Overview {
+    Overview {
+        settings: state.settings.lock().unwrap().clone(),
+        hardware: hardware::detect(),
+        pack_version: packwiz::installed_pack_version(&state.paths),
+        offline_name: settings::offline_name(),
+        data_dir: state.paths.root.display().to_string(),
+        disk_free_gb: hardware::disk_free_gb(&state.paths.root),
+        launcher_version: config::LAUNCHER_VERSION,
+    }
+}
+
+#[tauri::command]
+fn save_settings(state: State<'_, Arc<AppState>>, settings: Settings) -> CmdResult<()> {
+    settings.save(&state.paths).map_err(err)?;
+    *state.settings.lock().unwrap() = settings;
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct PresetsView {
+    file: presets::PresetsFile,
+    detected: String,
+    resolved: presets::Resolved,
+    memory_cap_gb: u64,
+}
+
+#[tauri::command]
+async fn presets_view(state: State<'_, Arc<AppState>>) -> CmdResult<PresetsView> {
+    let settings = state.settings.lock().unwrap().clone();
+    let file = presets::fetch(&settings::pack_url()).await.map_err(err)?;
+    let hw = hardware::detect();
+    Ok(PresetsView {
+        detected: file.detect(&hw),
+        resolved: presets::resolve(&file, &hw, &settings),
+        memory_cap_gb: file.memory_cap_gb(&hw),
+        file,
+    })
+}
+
+#[tauri::command]
+async fn server_status() -> ping::ServerStatus {
+    ping::status(config::SERVER_HOST, config::SERVER_PORT).await
+}
+
+#[tauri::command]
+async fn check_updates(state: State<'_, Arc<AppState>>) -> CmdResult<updates::Updates> {
+    Ok(updates::check(&state.paths, &settings::pack_url()).await)
+}
+
+/// Nouvelle version du launcher ? (tauri-plugin-updater : latest.json sur le
+/// homelab, signature vérifiée avec la clé publique de tauri.conf.json.)
+#[derive(Serialize)]
+struct LauncherUpdate {
+    version: String,
+    notes: String,
+}
+
+#[tauri::command]
+async fn launcher_update_check(app: AppHandle) -> CmdResult<Option<LauncherUpdate>> {
+    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    Ok(update.map(|u| LauncherUpdate { version: u.version.clone(), notes: u.body.clone().unwrap_or_default() }))
+}
+
+/// Télécharge, vérifie la signature, installe, puis redémarre le launcher.
+/// Progression : événement « launcher-update » { done, total }.
+#[tauri::command]
+async fn launcher_update_install(app: AppHandle) -> CmdResult<()> {
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("aucune mise à jour")?;
+    let mut done: u64 = 0;
+    let progress = app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                done += chunk as u64;
+                let _ = progress.emit("launcher-update", serde_json::json!({ "done": done, "total": total.unwrap_or(0) }));
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("mise à jour impossible : {e}"))?;
+    app.restart();
+}
+
+#[tauri::command]
+async fn news() -> Vec<updates::NewsItem> {
+    updates::news(&settings::pack_url()).await
+}
+
+/// Connexion par défaut : la page Microsoft dans le navigateur, retour
+/// automatique au launcher. En cas d'échec, l'interface propose le code.
+#[tauri::command]
+async fn login_browser(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<Account> {
+    let client_id = settings::azure_client_id().ok_or("connexion Microsoft non configurée")?;
+    let login = auth::start_browser_login(&client_id).await.map_err(err)?;
+    app.opener().open_url(login.url.clone(), None::<&str>).map_err(|e| e.to_string())?;
+    let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+    // Une nouvelle tentative annule la précédente.
+    if let Some(old) = state.login.lock().unwrap().replace(cancel_tx) {
+        let _ = old.send(());
+    }
+    let session = tokio::select! {
+        r = auth::finish_browser_login(&client_id, login) => r.map_err(err)?,
+        _ = cancel_rx => return Err("annulé".into()),
+    };
+    state.login.lock().unwrap().take();
+    let account = Account { name: session.name, uuid: session.uuid };
+    let mut s = state.settings.lock().unwrap();
+    s.account = Some(account.clone());
+    s.save(&state.paths).map_err(err)?;
+    Ok(account)
+}
+
+#[tauri::command]
+fn login_cancel(state: State<'_, Arc<AppState>>) {
+    if let Some(tx) = state.login.lock().unwrap().take() {
+        let _ = tx.send(());
+    }
+}
+
+#[tauri::command]
+async fn login_start(state: State<'_, Arc<AppState>>) -> CmdResult<auth::DeviceCode> {
+    let client_id = settings::azure_client_id().ok_or("connexion Microsoft non configurée")?;
+    let code = auth::start_device_code(&client_id).await.map_err(err)?;
+    *state.device_code.lock().unwrap() = Some(code.clone());
+    Ok(code)
+}
+
+#[tauri::command]
+async fn login_finish(state: State<'_, Arc<AppState>>) -> CmdResult<Account> {
+    let client_id = settings::azure_client_id().ok_or("connexion Microsoft non configurée")?;
+    let code = state.device_code.lock().unwrap().clone().ok_or("aucune connexion en cours")?;
+    let session = auth::finish_device_code(&client_id, &code).await.map_err(err)?;
+    let account = Account { name: session.name, uuid: session.uuid };
+    let mut s = state.settings.lock().unwrap();
+    s.account = Some(account.clone());
+    s.save(&state.paths).map_err(err)?;
+    Ok(account)
+}
+
+/// Le skin du compte connecté, en data URL (l'interface découpe la tête).
+#[tauri::command]
+async fn skin(state: State<'_, Arc<AppState>>) -> CmdResult<String> {
+    let uuid = state.settings.lock().unwrap().account.as_ref().map(|a| a.uuid.clone()).ok_or("pas de compte")?;
+    skin::skin_data_url(&state.paths, &uuid).await.map_err(err)
+}
+
+#[tauri::command]
+fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    auth::logout();
+    let mut s = state.settings.lock().unwrap();
+    s.account = None;
+    s.save(&state.paths).map_err(err)
+}
+
+/// Vide les empreintes de packwiz.json : au prochain lancement, packwiz
+/// revérifie chaque fichier (la manœuvre manuelle de CLAUDE.md).
+#[tauri::command]
+fn repair(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    let p = state.paths.instance().join("packwiz.json");
+    if let Ok(text) = std::fs::read_to_string(&p) {
+        let mut v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        if let Some(o) = v.as_object_mut() {
+            o.remove("packFileHash");
+            o.remove("indexFileHash");
+        }
+        std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap()).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_folder(app: AppHandle, state: State<'_, Arc<AppState>>, which: String) -> CmdResult<()> {
+    let game = state.paths.instance();
+    let path = match which.as_str() {
+        "logs" => game.join("logs"),
+        "crash" => game.join("crash-reports"),
+        "screenshots" => game.join("screenshots"),
+        _ => game,
+    };
+    std::fs::create_dir_all(&path).ok();
+    app.opener().open_path(path.display().to_string(), None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
+    if !url.starts_with("https://") {
+        return Err("adresse refusée".into());
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Tout le parcours de « Jouer ». Rend la main tout de suite : la suite
+/// arrive par événements.
+#[tauri::command]
+fn play(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    let mut task = state.task.lock().unwrap();
+    if task.as_ref().is_some_and(|t| !t.inner().is_finished()) {
+        return Err("déjà en cours".into());
+    }
+    let st = state.inner().clone();
+    let behavior = st.settings.lock().unwrap().launcher_behavior.clone();
+    *task = Some(tauri::async_runtime::spawn(async move {
+        let reporter = TauriReporter { app: app.clone(), behavior };
+        if let Err(e) = play_inner(&st, &reporter).await {
+            reporter.taskbar(ProgressBarStatus::Error, None);
+            let _ = app.emit("launcher-error", format!("{e:#}"));
+        }
+    }));
+    Ok(())
+}
+
+/// Annule la préparation, ou arrête le jeu s'il tourne.
+#[tauri::command]
+fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
+    if let Some(t) = state.task.lock().unwrap().take() {
+        t.abort();
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_progress_bar(ProgressBarState { status: Some(ProgressBarStatus::None), progress: None });
+    }
+    let _ = app.emit("launcher-stopped", ());
+}
+
+async fn play_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
+    let settings = state.settings.lock().unwrap().clone();
+    // Compte d'abord : inutile de tout préparer pour une session expirée.
+    r.stage("account", "Compte");
+    let session = match (settings::offline_name(), settings::azure_client_id()) {
+        (Some(name), _) => auth::offline_session(&name),
+        (None, Some(client_id)) => auth::refresh(&client_id).await?,
+        (None, None) => anyhow::bail!("connexion Microsoft non configurée"),
+    };
+    // Première installation : ~3 Go. Mieux vaut le dire avant qu'après.
+    if packwiz::installed_pack_version(&state.paths).is_none() {
+        if let Some(free) = hardware::disk_free_gb(&state.paths.root) {
+            if free < 4.0 {
+                anyhow::bail!("il faut environ 4 Go d'espace libre pour installer le jeu ({free:.1} Go disponibles)");
+            }
+        }
+    }
+    let prepared = launch::prepare(&state.paths, &settings, r).await?;
+    {
+        let mut s = state.settings.lock().unwrap();
+        s.applied = Some(prepared.applied.clone());
+        s.once_applied = prepared.once_applied;
+        s.save(&state.paths)?;
+    }
+    let outcome = launch::launch(&state.paths, &settings, &session, &prepared, r).await?;
+    if !outcome.milestones_ms.is_empty() {
+        let mut s = state.settings.lock().unwrap();
+        s.last_milestones_ms = outcome.milestones_ms;
+        s.save(&state.paths)?;
+    }
+    Ok(())
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let paths = Paths::default_location();
+    let settings = Settings::load(&paths);
+    let state = Arc::new(AppState {
+        paths,
+        settings: Mutex::new(settings),
+        device_code: Mutex::new(None),
+        task: Mutex::new(None),
+        login: Mutex::new(None),
+    });
+    tauri::Builder::default()
+        // Un second lancement du launcher ramène le premier au lieu d'en
+        // ouvrir un autre (deux synchronisations en même temps = conflit).
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .setup(move |app| {
+            app.manage(state);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            overview,
+            save_settings,
+            presets_view,
+            server_status,
+            check_updates,
+            launcher_update_check,
+            launcher_update_install,
+            news,
+            login_browser,
+            login_cancel,
+            login_start,
+            login_finish,
+            logout,
+            skin,
+            repair,
+            open_folder,
+            open_url,
+            play,
+            stop
+        ])
+        .run(tauri::generate_context!())
+        .expect("erreur au démarrage du launcher");
+}

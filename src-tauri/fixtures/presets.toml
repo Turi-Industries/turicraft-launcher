@@ -1,0 +1,442 @@
+# Préréglages de qualité du client Turi Craft — lus par le launcher.
+#
+# Décision : docs/decisions/0007-launcher-prereglages-interface.md
+#
+# Ce fichier est servi avec le pack (Caddy) mais exclu de l'index packwiz
+# (.packwizignore) : il n'est pas copié dans l'instance des joueurs, le
+# launcher le télécharge à part. Modifier un préréglage = modifier ce fichier,
+# sans recompiler le launcher.
+#
+# Toutes les clés ont été relevées dans les fichiers générés par le jeu ou dans
+# les jars (2026-09-24), jamais devinées. Le launcher applique un préréglage
+# APRÈS la synchronisation packwiz, à chaque lancement.
+
+schema = 1
+
+# ─── Choix automatique ──────────────────────────────────────────────────────
+#
+# Le launcher mesure la RAM totale, le nombre de fils du processeur et la
+# carte graphique (dédiée ou intégrée, mémoire vidéo). Il retient le premier
+# préréglage de `order` dont TOUTES les conditions sont remplies ; à défaut,
+# le dernier. Une puce Apple compte comme « integrated » (mémoire partagée).
+# Le joueur peut toujours changer ensuite.
+[detection]
+order = ["haut", "moyen", "faible"]
+
+[detection.haut]
+min_ram_gb = 16
+min_cpu_threads = 8
+gpu = "dedicated"      # dedicated | any
+min_vram_gb = 6
+
+[detection.moyen]
+min_ram_gb = 12
+min_cpu_threads = 6
+gpu = "any"
+min_vram_gb = 0
+
+[detection.faible]
+# toujours accepté
+
+# ─── Mémoire ────────────────────────────────────────────────────────────────
+# Le launcher ne donne jamais plus que (RAM totale − 3 Go) : le système et le
+# pilote graphique en ont besoin (un Mac 8 Go a déjà planté à 6 Go).
+[memory]
+reserve_system_gb = 3
+
+# ─── Mods optionnels ────────────────────────────────────────────────────────
+# Chemins des métadonnées packwiz marquées `[option] optional = true`.
+# Groupes cochés ensemble dans l'écran Personnalisé.
+[optional_groups]
+animations = [
+  "mods/entity-model-features.pw.toml",
+  "mods/entitytexturefeatures.pw.toml",
+  "resourcepacks/fresh-animations.pw.toml",
+]
+joueur = [
+  "mods/3dskinlayers.pw.toml",
+  "mods/wavey-capes.pw.toml",
+  "mods/not-enough-animations.pw.toml",
+]
+premiere_personne = ["mods/first-person-model.pw.toml"]
+lumieres = ["mods/lambdynamiclights.pw.toml"]
+particules = [
+  "mods/particular-reforged.pw.toml",
+  "mods/make_bubbles_pop.pw.toml",
+]
+objets_physiques = ["mods/itemphysic-lite.pw.toml"]
+textures_connectees = ["mods/athena-ctm.pw.toml"]
+interface_animee = ["mods/chatanimation.pw.toml"]
+aeronautics_visuel = ["mods/aeronautics-propeller-blur.pw.toml"]
+sons_legers = [
+  "mods/pf-neoforge.pw.toml",
+  "mods/dripsounds.pw.toml",
+  "mods/aeronautics-wind-sound.pw.toml",
+  "mods/create-rolling-tones.pw.toml",
+]
+sons_ambiance = ["mods/ambientsounds.pw.toml"]
+
+# ─── Mods optionnels, tels que le joueur les voit ───────────────────────────
+# Chaque groupe devient un interrupteur de la section « Mods » (sauf ceux
+# qu'une option du jeu pilote déjà : objets_physiques, premiere_personne).
+[group_info.animations]
+label = "Animations des créatures"
+description = "Fresh Animations : les mobs clignent des yeux, respirent, bougent la tête."
+[group_info.joueur]
+label = "Skins 3D, capes, animations"
+description = "Couches de skin en relief, capes qui flottent, bras qui suivent les mouvements."
+[group_info.lumieres]
+label = "Lumières dynamiques"
+description = "Une torche en main éclaire autour de toi."
+[group_info.particules]
+label = "Particules supplémentaires"
+description = "Feuilles qui tombent, bulles qui éclatent, lucioles."
+[group_info.textures_connectees]
+label = "Textures connectées"
+description = "Le verre et les bibliothèques se raccordent entre blocs voisins."
+[group_info.interface_animee]
+label = "Chat animé"
+description = "Les messages du chat glissent à l'écran."
+[group_info.aeronautics_visuel]
+label = "Flou des hélices"
+description = "Les hélices d'Aeronautics se floutent en tournant vite."
+[group_info.sons_legers]
+label = "Bruits de pas et de gouttes"
+description = "Pas selon le sol, gouttes qui tombent, sons des engins Create."
+[group_info.sons_ambiance]
+label = "Ambiance sonore complète"
+description = "AmbientSounds : vent, oiseaux, grottes, selon le biome. Plus gourmand."
+
+# ─── Options du jeu ─────────────────────────────────────────────────────────
+# Interrupteurs du mode Simple : ce qui change le jeu et qu'un joueur peut
+# vouloir couper. Valeur : choix du joueur, sinon `toggles` du préréglage,
+# sinon `default`. Appliqués APRÈS le préréglage : ils ont le dernier mot sur
+# les fichiers qu'ils touchent. `groups` : groupes de mods optionnels ajoutés
+# (activé) ou retirés (désactivé) de ceux du préréglage.
+
+[toggles.shaders]
+category = "graphismes"
+label = "Shaders"
+description = "Ombres, reflets, eau réaliste. Demande une bonne carte graphique."
+default = true
+[toggles.shaders.files."config/iris.properties"]
+format = "properties"
+set = { enableShaders = "true", shaderPack = "ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5" }
+[toggles.shaders.off.files."config/iris.properties"]
+format = "properties"
+set = { enableShaders = "false" }
+
+[toggles.vue_lointaine]
+category = "graphismes"
+label = "Vue lointaine"
+description = "Distant Horizons : le paysage reste visible bien au-delà de la distance d'affichage."
+default = true
+[toggles.vue_lointaine.files."config/DistantHorizons.toml"]
+format = "toml"
+set = { "client.quickEnableRendering" = true }
+[toggles.vue_lointaine.off.files."config/DistantHorizons.toml"]
+format = "toml"
+set = { "client.quickEnableRendering" = false }
+
+[toggles.son_3d]
+category = "mods"
+label = "Son 3D réaliste"
+description = "Écho dans les grottes, sons étouffés derrière les murs."
+default = true
+[toggles.son_3d.files."config/sound_physics_remastered/soundphysics.properties"]
+format = "properties"
+set = { enabled = "true" }
+[toggles.son_3d.off.files."config/sound_physics_remastered/soundphysics.properties"]
+format = "properties"
+set = { enabled = "false" }
+
+[toggles.objets_physiques]
+category = "mods"
+label = "Objets au sol réalistes"
+description = "Les objets tombent à plat au lieu de flotter en tournant."
+default = true
+groups = ["objets_physiques"]
+
+[toggles.premiere_personne]
+category = "mods"
+label = "Corps en première personne"
+description = "Voir ses jambes et son corps en regardant vers le bas."
+default = false
+groups = ["premiere_personne"]
+
+[toggles.synchro_verticale]
+category = "graphismes"
+label = "Synchronisation verticale"
+description = "Évite les déchirures de l'image. La couper peut donner plus d'images par seconde."
+default = true
+options = { enableVsync = "true" }
+[toggles.synchro_verticale.off]
+options = { enableVsync = "false" }
+
+[toggles.plein_ecran]
+category = "graphismes"
+label = "Plein écran"
+description = "Le jeu démarre en fenêtre et passe en plein écran une fois chargé. F11 en jeu pour basculer, retenu à la partie suivante."
+default = false
+options = { fullscreen = "true" }
+[toggles.plein_ecran.off]
+options = { fullscreen = "false" }
+
+[toggles.infobulle]
+category = "interface"
+label = "Infobulle de ce que tu regardes"
+description = "Jade : nom du bloc ou de la créature visée, en haut de l'écran."
+default = true
+[toggles.infobulle.files."config/jade/jade.json"]
+format = "json"
+set = { "general.displayTooltip" = true }
+[toggles.infobulle.off.files."config/jade/jade.json"]
+format = "json"
+set = { "general.displayTooltip" = false }
+
+[toggles.titres_biomes]
+category = "interface"
+label = "Titres des biomes"
+description = "Le nom du biome s'affiche quand tu y entres."
+default = true
+[toggles.titres_biomes.files."config/travelerstitles-neoforge-1_21.toml"]
+format = "toml"
+set = { "Traveler's Titles.Biome Titles.Enable Biome Titles" = true }
+[toggles.titres_biomes.off.files."config/travelerstitles-neoforge-1_21.toml"]
+format = "toml"
+set = { "Traveler's Titles.Biome Titles.Enable Biome Titles" = false }
+
+[toggles.balancement]
+category = "graphismes"
+label = "Balancement de la vue"
+description = "La caméra bouge en marchant. À couper si ça donne mal au cœur."
+default = true
+options = { bobView = "true" }
+[toggles.balancement.off]
+options = { bobView = "false" }
+
+# ─── Curseurs ───────────────────────────────────────────────────────────────
+# Réglages chiffrés du mode Simple. Valeur : choix du joueur, sinon celle que
+# le préréglage écrit (`option` dans options.txt, ou `file` + `key`), bornée
+# par min/max. `requires` : grisé si cette option du jeu est coupée.
+
+[sliders.distance]
+label = "Distance d'affichage"
+description = "Chunks chargés autour de toi. Le plus gros levier de performance."
+option = "renderDistance"
+min = 2
+max = 32
+step = 1
+unit = "chunks"
+
+[sliders.distance_lointaine]
+label = "Distance de la vue lointaine"
+description = "Jusqu'où Distant Horizons dessine le paysage."
+file = "config/DistantHorizons.toml"
+format = "toml"
+key = "client.advanced.graphics.quality.lodChunkRenderDistanceRadius"
+min = 32
+max = 256
+step = 16
+unit = "chunks"
+requires = "vue_lointaine"
+
+[sliders.interface]
+label = "Taille de l'interface"
+description = "Menus, inventaire, barre de vie. Réglée sur la définition de ton écran."
+option = "guiScale"
+min = 1
+max = 6
+step = 1
+unit = "gui"
+default = 3
+
+[sliders.images]
+label = "Images par seconde maximum"
+description = "Réglé sur la fréquence de ton écran : au-delà, les images ne s'affichent pas. 260 = illimité."
+option = "maxFps"
+min = 30
+max = 260
+step = 10
+unit = "fps"
+# Aucun préréglage ne limite les images/s : par défaut, la fréquence de
+# l'écran principal (règle plus bas) ; inconnue, illimité — la synchro
+# verticale limite déjà à ce que l'écran affiche.
+default = 260
+
+# ─── Une fois par installation ──────────────────────────────────────────────
+# Posé au premier lancement par le launcher, puis plus jamais : si le joueur
+# change de langue en jeu, c'est son choix. Monter `version` le repose une
+# fois chez tout le monde.
+[once]
+version = 1
+options = { lang = "fr_fr" }
+
+# ─── Ajustements automatiques ───────────────────────────────────────────────
+# Appliqués dans l'ordre, par-dessus le préréglage, quand la machine remplit
+# `when` (et, si `presets` est donné, pour ces préréglages seulement). Ce sont
+# des valeurs conseillées : le choix du joueur passe toujours par-dessus.
+# Conditions : min/max_ram_gb, min/max_cpu_threads, min/max_vram_gb,
+# gpu = "dedicated" | "integrated".
+
+[[adapt]]
+note = "carte graphique intégrée"
+when = { gpu = "integrated" }
+toggles = { shaders = false, vue_lointaine = false }
+
+[[adapt]]
+note = "processeur à 4 cœurs ou moins"
+when = { max_cpu_threads = 4 }
+toggles = { son_3d = false }   # Sound Physics lance des rayons à chaque son
+
+[[adapt]]
+note = "moins de 12 Go de mémoire"
+when = { max_ram_gb = 12 }
+sliders = { distance_lointaine = 64 }   # Distant Horizons garde ses LOD en mémoire
+
+[[adapt]]
+note = "grosse carte graphique"
+presets = ["haut"]
+when = { min_vram_gb = 12 }
+sliders = { distance = 16, distance_lointaine = 192 }
+
+[[adapt]]
+note = "processeur à 16 fils ou plus"
+presets = ["moyen", "haut"]
+when = { min_cpu_threads = 16 }
+files."config/DistantHorizons.toml" = { format = "toml", set = { "common.multiThreading.numberOfThreads" = 4 } }
+
+# Écran PRINCIPAL (pas le plus rapide : sur un second écran à 165 Hz, le jeu
+# tourne quand même sur le principal). Fréquence et VRR : launcher,
+# display.rs. « ecran » = sa fréquence, « ecran-3 » = 3 de moins, pour rester
+# dans la plage du VRR. macOS : jamais de VRR, sa synchro est imposée.
+
+[[adapt]]
+note = "définition de ton écran principal"
+when = { height_known = true }
+sliders = { interface = "interface" }   # hauteur / 480 : 2 en 1080p, 3 en 1440p, 5 en 4K
+
+[[adapt]]
+note = "fréquence de ton écran principal"
+when = { refresh_known = true }
+sliders = { images = "ecran" }
+
+[[adapt]]
+note = "écran FreeSync / G-Sync actif"
+when = { vrr = true }
+toggles = { synchro_verticale = false }   # le VRR supprime les déchirures sans elle
+sliders = { images = "ecran-3" }
+
+# ════════════════════════════════════════════════════════════════════════════
+[presets.faible]
+label = "Faible"
+toggles = { shaders = false, vue_lointaine = false, son_3d = false, objets_physiques = false, synchro_verticale = false }
+description = "Petites machines, 8 Go de RAM : l'essentiel."
+memory_gb = 5
+groups = []
+resource_packs = []   # Fresh Animations retiré : EMF est désactivé
+
+[presets.faible.options]   # options.txt, valeurs telles que Minecraft les écrit
+renderDistance = "6"
+simulationDistance = "5"   # solo seulement ; le serveur impose la sienne
+graphicsMode = "0"         # 0 rapides, 1 détaillés
+particles = "2"            # 0 toutes, 1 réduites, 2 minimales
+mipmapLevels = "0"
+biomeBlendRadius = "0"
+renderClouds = '"false"'
+entityShadows = "false"
+entityDistanceScaling = "0.5"
+ao = "false"               # éclairage adouci : coûteux à la construction des chunks
+menuBackgroundBlurriness = "0"
+
+[presets.faible.files."config/sodium-options.json"]
+format = "json"
+set = { "quality.weather_quality" = "FAST", "quality.leaves_quality" = "FAST", "quality.enable_vignette" = false, "performance.animate_only_visible_textures" = true, "performance.use_entity_culling" = true, "performance.use_fog_occlusion" = true, "performance.use_block_face_culling" = true, "performance.chunk_build_defer_mode" = "ALWAYS" }
+
+[presets.faible.files."config/sodium-extra-options.json"]
+format = "json"
+set = { "particle_settings.rain_splash" = false, "particle_settings.block_breaking" = false, "detail_settings.sky" = true, "detail_settings.stars" = false, "animation_settings.water" = true, "animation_settings.lava" = false, "animation_settings.fire" = false, "animation_settings.portal" = false, "animation_settings.block_animations" = false, "animation_settings.sculk_sensor" = false, "render_settings.enchanting_table_book" = false, "render_settings.beacon_beam" = false }
+
+[presets.faible.files."config/DistantHorizons.toml"]
+format = "toml"
+set = { "client.quickEnableRendering" = false, "common.multiThreading.numberOfThreads" = 1 }
+
+[presets.faible.files."config/sound_physics_remastered/soundphysics.properties"]
+format = "properties"
+set = { enabled = "false" }
+
+# ════════════════════════════════════════════════════════════════════════════
+[presets.moyen]
+label = "Moyen"
+# Moyen couvre les cartes graphiques intégrées : shaders coupés par défaut.
+toggles = { shaders = false, objets_physiques = false, premiere_personne = true }
+description = "Animations et lumières, vue à 1 km."
+memory_gb = 6
+groups = ["animations", "joueur", "lumieres", "particules", "textures_connectees", "interface_animee", "aeronautics_visuel", "sons_legers"]
+resource_packs = ["file/FreshAnimations_v1.10.4.zip"]
+
+[presets.moyen.options]
+renderDistance = "10"
+graphicsMode = "1"
+particles = "1"
+mipmapLevels = "2"
+biomeBlendRadius = "2"
+renderClouds = '"fast"'
+entityShadows = "true"
+entityDistanceScaling = "1.0"
+ao = "true"
+menuBackgroundBlurriness = "5"
+
+[presets.moyen.files."config/sodium-options.json"]
+format = "json"
+set = { "quality.weather_quality" = "DEFAULT", "quality.leaves_quality" = "DEFAULT", "quality.enable_vignette" = true, "performance.animate_only_visible_textures" = true, "performance.use_entity_culling" = true, "performance.use_fog_occlusion" = true }
+
+[presets.moyen.files."config/sodium-extra-options.json"]
+format = "json"
+set = { "particle_settings.rain_splash" = true, "detail_settings.sky" = true, "animation_settings.water" = true, "animation_settings.lava" = true, "animation_settings.fire" = true, "animation_settings.portal" = true, "animation_settings.block_animations" = true, "animation_settings.sculk_sensor" = true }
+
+[presets.moyen.files."config/DistantHorizons.toml"]
+format = "toml"
+set = { "client.quickEnableRendering" = true, "client.advanced.graphics.quality.lodChunkRenderDistanceRadius" = 64, "client.advanced.graphics.quality.horizontalQuality" = "LOW", "client.advanced.graphics.quality.verticalQuality" = "LOW", "common.multiThreading.numberOfThreads" = 2 }
+
+[presets.moyen.files."config/sound_physics_remastered/soundphysics.properties"]
+format = "properties"
+set = { enabled = "true", environment_evaluation_ray_count = "16", environment_evaluation_ray_bounces = "2" }
+
+# ════════════════════════════════════════════════════════════════════════════
+[presets.haut]
+label = "Haut"
+toggles = { premiere_personne = true }
+description = "Tout activé, vue à 2 km."
+memory_gb = 8
+groups = ["animations", "joueur", "lumieres", "particules", "textures_connectees", "interface_animee", "aeronautics_visuel", "sons_legers", "sons_ambiance"]
+resource_packs = ["file/FreshAnimations_v1.10.4.zip"]
+
+[presets.haut.options]
+renderDistance = "14"
+graphicsMode = "1"
+particles = "0"
+mipmapLevels = "4"
+biomeBlendRadius = "3"
+renderClouds = '"true"'
+entityShadows = "true"
+entityDistanceScaling = "1.25"
+ao = "true"
+menuBackgroundBlurriness = "5"
+
+[presets.haut.files."config/sodium-options.json"]
+format = "json"
+set = { "quality.weather_quality" = "FANCY", "quality.leaves_quality" = "FANCY", "quality.enable_vignette" = true, "performance.animate_only_visible_textures" = true, "performance.use_entity_culling" = true, "performance.use_fog_occlusion" = true }
+
+[presets.haut.files."config/sodium-extra-options.json"]
+format = "json"
+set = { "particle_settings.rain_splash" = true, "detail_settings.sky" = true, "animation_settings.water" = true, "animation_settings.lava" = true, "animation_settings.fire" = true, "animation_settings.portal" = true, "animation_settings.block_animations" = true, "animation_settings.sculk_sensor" = true }
+
+[presets.haut.files."config/DistantHorizons.toml"]
+format = "toml"
+set = { "client.quickEnableRendering" = true, "client.advanced.graphics.quality.lodChunkRenderDistanceRadius" = 128, "client.advanced.graphics.quality.horizontalQuality" = "MEDIUM", "client.advanced.graphics.quality.verticalQuality" = "MEDIUM", "common.multiThreading.numberOfThreads" = 4 }
+
+[presets.haut.files."config/sound_physics_remastered/soundphysics.properties"]
+format = "properties"
+set = { enabled = "true", environment_evaluation_ray_count = "32", environment_evaluation_ray_bounces = "4" }
+

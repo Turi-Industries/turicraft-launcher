@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Interface du launcher : commandes du cœur et événements. Les dossiers et liens s'ouvrent côté Rust (open_folder, open_url), pas depuis la page.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
