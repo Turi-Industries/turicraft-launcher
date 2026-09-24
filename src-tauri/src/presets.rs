@@ -5,7 +5,7 @@
 //! Appliqué APRÈS la synchronisation packwiz, qui réécrirait sinon les
 //! fichiers de config livrés par le pack.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
@@ -290,6 +290,20 @@ impl PresetsFile {
     pub fn memory_cap_gb(&self, hw: &Hardware) -> u64 {
         // Arrondi : un « 8 Go » annonce ~7,6 Go utilisables.
         ((hw.ram_gb.round() as i64) - self.memory.reserve_system_gb as i64).max(2) as u64
+    }
+
+    /// Fichiers de config que le launcher réécrit (préréglages, options,
+    /// ajustements, curseurs). S'ils viennent du pack, une mise à jour du pack
+    /// peut les remplacer : il faut alors réappliquer (voir launch.rs).
+    pub fn managed_files(&self) -> BTreeSet<String> {
+        let mut out: BTreeSet<String> = self.presets.values().flat_map(|p| p.files.keys().cloned()).collect();
+        for t in self.toggles.values() {
+            out.extend(t.files.keys().cloned());
+            out.extend(t.off.iter().flat_map(|o| o.files.keys().cloned()));
+        }
+        out.extend(self.adapt.iter().flat_map(|a| a.files.keys().cloned()));
+        out.extend(self.sliders.values().filter_map(|s| s.file.clone()));
+        out
     }
 
     pub fn all_optional(&self) -> HashSet<String> {
@@ -761,6 +775,29 @@ mod tests {
         let out = std::fs::read_to_string(&p).unwrap();
         assert!(out.contains("renderDistance:6"));
         assert!(out.contains(r#"resourcePacks:["vanilla","file/perso.zip"]"#));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Distant Horizons se coupe VRAIMENT : `rendererMode`, relu par DH au
+    /// démarrage. `quickEnableRendering`, écrit avant, n'était qu'un raccourci
+    /// de son écran de réglages : DH restait actif partout (Mac, 24/09).
+    #[test]
+    fn vue_lointaine_ecrit_la_vraie_option_de_dh() {
+        let f = parse(REAL).unwrap();
+        let dir = std::env::temp_dir().join(format!("turicraft-dh-{}", std::process::id()));
+        let paths = crate::paths::Paths::new(dir.clone());
+        let mode = |hw: &Hardware| {
+            let r = resolve(&f, hw, &crate::settings::Settings::default());
+            apply(&paths, &f, &r, &crate::progress::ConsoleReporter).unwrap();
+            let t: toml::Table = std::fs::read_to_string(paths.instance().join("config/DistantHorizons.toml")).unwrap().parse().unwrap();
+            t["client"]["advanced"]["debugging"]["rendererMode"].as_str().unwrap().to_string()
+        };
+        // Mac à puce Apple : mémoire partagée → carte « intégrée » → DH coupé.
+        let mac = Hardware { ram_gb: 16.0, cpu_threads: 10, gpu_dedicated: false, vram_gb: 0.0, gpu_name: "Apple Silicon".into(), display: Default::default() };
+        assert_eq!(mode(&mac), "DISABLED");
+        // Grosse carte dédiée : DH actif.
+        let pc = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), display: Default::default() };
+        assert_eq!(mode(&pc), "DEFAULT");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

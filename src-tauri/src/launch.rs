@@ -60,9 +60,12 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
     // Les réglages ne sont réécrits que s'ils ont changé côté launcher (choix
     // du joueur, ou presets.toml mis à jour) : sinon, ce que le joueur a
     // réglé EN JEU (distance, plein écran…) serait écrasé à chaque lancement.
+    // Ou si une mise à jour du pack a remplacé un fichier qu'ils touchent
+    // (DistantHorizons.toml…) : le fichier neuf n'a plus les réglages.
     let applied = {
         use sha2::{Digest, Sha256};
-        let both = serde_json::json!({ "file": &file, "resolved": &resolved });
+        let pack_files = packwiz::pack_hashes(paths, &file.managed_files());
+        let both = serde_json::json!({ "file": &file, "resolved": &resolved, "pack_files": pack_files });
         hex::encode(Sha256::digest(both.to_string().as_bytes()))
     };
     let first_run = !paths.instance().join("options.txt").exists();

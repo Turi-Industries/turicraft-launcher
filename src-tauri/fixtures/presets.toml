@@ -133,12 +133,15 @@ category = "graphismes"
 label = "Vue lointaine"
 description = "Distant Horizons : le paysage reste visible bien au-delà de la distance d'affichage."
 default = true
+# La VRAIE option : `client.quickEnableRendering` n'est qu'un raccourci de
+# l'écran de réglages de DH 3.x, jamais relu dans le fichier — l'écrire ne
+# coupait rien (DH restait actif partout, Faible et Mac compris).
 [toggles.vue_lointaine.files."config/DistantHorizons.toml"]
 format = "toml"
-set = { "client.quickEnableRendering" = true }
+set = { "client.advanced.debugging.rendererMode" = "DEFAULT" }
 [toggles.vue_lointaine.off.files."config/DistantHorizons.toml"]
 format = "toml"
-set = { "client.quickEnableRendering" = false }
+set = { "client.advanced.debugging.rendererMode" = "DISABLED" }
 
 [toggles.son_3d]
 category = "mods"
@@ -361,7 +364,7 @@ set = { "particle_settings.rain_splash" = false, "particle_settings.block_breaki
 
 [presets.faible.files."config/DistantHorizons.toml"]
 format = "toml"
-set = { "client.quickEnableRendering" = false, "common.multiThreading.numberOfThreads" = 1 }
+set = { "common.multiThreading.numberOfThreads" = 1 }
 
 [presets.faible.files."config/sound_physics_remastered/soundphysics.properties"]
 format = "properties"
@@ -399,7 +402,7 @@ set = { "particle_settings.rain_splash" = true, "detail_settings.sky" = true, "a
 
 [presets.moyen.files."config/DistantHorizons.toml"]
 format = "toml"
-set = { "client.quickEnableRendering" = true, "client.advanced.graphics.quality.lodChunkRenderDistanceRadius" = 64, "client.advanced.graphics.quality.horizontalQuality" = "LOW", "client.advanced.graphics.quality.verticalQuality" = "LOW", "common.multiThreading.numberOfThreads" = 2 }
+set = { "client.advanced.graphics.quality.lodChunkRenderDistanceRadius" = 64, "client.advanced.graphics.quality.horizontalQuality" = "LOW", "client.advanced.graphics.quality.verticalQuality" = "LOW", "common.multiThreading.numberOfThreads" = 2 }
 
 [presets.moyen.files."config/sound_physics_remastered/soundphysics.properties"]
 format = "properties"
@@ -436,7 +439,7 @@ set = { "particle_settings.rain_splash" = true, "detail_settings.sky" = true, "a
 
 [presets.haut.files."config/DistantHorizons.toml"]
 format = "toml"
-set = { "client.quickEnableRendering" = true, "client.advanced.graphics.quality.lodChunkRenderDistanceRadius" = 128, "client.advanced.graphics.quality.horizontalQuality" = "MEDIUM", "client.advanced.graphics.quality.verticalQuality" = "MEDIUM", "common.multiThreading.numberOfThreads" = 4 }
+set = { "client.advanced.graphics.quality.lodChunkRenderDistanceRadius" = 128, "client.advanced.graphics.quality.horizontalQuality" = "MEDIUM", "client.advanced.graphics.quality.verticalQuality" = "MEDIUM", "common.multiThreading.numberOfThreads" = 4 }
 
 [presets.haut.files."config/sound_physics_remastered/soundphysics.properties"]
 format = "properties"

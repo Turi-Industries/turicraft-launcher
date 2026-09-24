@@ -8,7 +8,7 @@
 //! sans ça, packwiz-installer voit un pack inchangé et ne revérifie rien
 //! (vérifié le 24/09 : désactivé → jar supprimé, réactivé → retéléchargé).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::process::Stdio;
 
@@ -137,6 +137,24 @@ pub fn set_optional(paths: &Paths, all_optional: &HashSet<String>, enabled: &Has
 }
 
 /// Versions de Minecraft et NeoForge demandées par le pack (`[versions]`).
+/// Pour chaque fichier demandé, le hash de sa version DANS LE PACK, tel que
+/// packwiz-installer l'a noté (`packwiz.json`, `cachedFiles`). Il change quand
+/// une mise à jour du pack remplace le fichier — pas quand le launcher ou le
+/// joueur le modifie ensuite.
+pub fn pack_hashes(paths: &Paths, files: &std::collections::BTreeSet<String>) -> BTreeMap<String, String> {
+    let manifest: Value = std::fs::read_to_string(paths.instance().join("packwiz.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    files
+        .iter()
+        .filter_map(|f| {
+            let h = manifest["cachedFiles"][f]["hash"]["value"].as_str()?;
+            Some((f.clone(), h.to_string()))
+        })
+        .collect()
+}
+
 pub async fn pack_versions(pack_url: &str) -> Result<(String, String)> {
     let text = crate::net::fetch_text(&crate::net::client(), pack_url).await.context("lecture de pack.toml")?;
     let v: toml::Value = toml::from_str(&text).context("pack.toml invalide")?;
@@ -153,4 +171,26 @@ pub fn installed_pack_version(paths: &Paths) -> Option<String> {
     let text = std::fs::read_to_string(paths.instance().join("config/turicraft/version.json")).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
     v.get("version")?.as_str().map(String::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hash_des_fichiers_du_pack() {
+        let dir = std::env::temp_dir().join(format!("turicraft-pw-{}", std::process::id()));
+        let paths = Paths::new(dir.clone());
+        std::fs::create_dir_all(paths.instance()).unwrap();
+        std::fs::write(
+            paths.instance().join("packwiz.json"),
+            r#"{"cachedFiles":{"config/DistantHorizons.toml":{"hash":{"type":"sha256","value":"abc"}}}}"#,
+        )
+        .unwrap();
+        let wanted = ["config/DistantHorizons.toml".to_string(), "config/absent.toml".to_string()].into();
+        let h = pack_hashes(&paths, &wanted);
+        assert_eq!(h.len(), 1);
+        assert_eq!(h["config/DistantHorizons.toml"], "abc");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
