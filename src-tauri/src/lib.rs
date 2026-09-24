@@ -193,6 +193,60 @@ async fn launcher_update_check(app: AppHandle) -> CmdResult<Option<LauncherUpdat
     Ok(update.map(|u| LauncherUpdate { version: u.version.clone(), notes: u.body.clone().unwrap_or_default() }))
 }
 
+/// Taille de la fenêtre au tout premier lancement : environ un tiers de la
+/// surface de l'écran principal, en 16:9 (1478 × 831 en 1440p, 1108 × 624 en
+/// 1080p), jamais sous le minimum. Ensuite, tauri-plugin-window-state rend la
+/// taille et la position laissées par le joueur. La fenêtre est créée cachée
+/// (tauri.conf.json) : on ne la voit pas changer de taille.
+fn first_window_size(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let saved = app
+        .path()
+        .app_config_dir()
+        .map(|d| d.join(tauri_plugin_window_state::DEFAULT_FILENAME).exists())
+        .unwrap_or(false);
+    if !saved {
+        if let Some(m) = w.current_monitor().ok().flatten().or_else(|| w.primary_monitor().ok().flatten()) {
+            let (sw, sh) = (m.size().width as f64, m.size().height as f64);
+            let (w_px, h_px) = first_size(sw, sh, m.scale_factor());
+            let _ = w.set_size(tauri::PhysicalSize::new(w_px, h_px));
+            // Centrée à la main : center() lit la taille d'AVANT (le
+            // redimensionnement est asynchrone sous X11) et se décale.
+            let origin = m.position();
+            let _ = w.set_position(tauri::PhysicalPosition::new(
+                origin.x + ((sw - w_px as f64) / 2.0) as i32,
+                origin.y + ((sh - h_px as f64) / 2.0) as i32,
+            ));
+        }
+    }
+    let _ = w.show();
+}
+
+/// Écran (pixels physiques) → fenêtre 16:9 d'un tiers de sa surface, bornée :
+/// au moins 820 × 560 (points), au plus 90 % de l'écran.
+fn first_size(screen_w: f64, screen_h: f64, scale: f64) -> (u32, u32) {
+    let h = (screen_w * screen_h / 3.0 * 9.0 / 16.0).sqrt();
+    let w = h * 16.0 / 9.0;
+    let w = w.max(820.0 * scale).min(screen_w * 0.9);
+    let h = h.max(560.0 * scale).min(screen_h * 0.9);
+    (w.round() as u32, h.round() as u32)
+}
+
+#[cfg(test)]
+mod tests_fenetre {
+    use super::first_size;
+
+    #[test]
+    fn un_tiers_de_l_ecran_en_16_9() {
+        assert_eq!(first_size(2560.0, 1440.0, 1.0), (1478, 831));
+        assert_eq!(first_size(1920.0, 1080.0, 1.0), (1109, 624));
+        // 4K à 200 % : même taille apparente qu'en 1080p.
+        assert_eq!(first_size(3840.0, 2160.0, 2.0), (2217, 1247));
+        // Petit écran : jamais sous le minimum de la fenêtre.
+        assert_eq!(first_size(1366.0, 768.0, 1.0), (820, 560));
+    }
+}
+
 /// « Plus tard » : télécharge maintenant (signature vérifiée), installe à la
 /// fermeture du launcher — la réouverture suivante est à jour.
 #[tauri::command]
@@ -415,7 +469,7 @@ async fn play_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
     {
         let mut s = state.settings.lock().unwrap();
         s.applied = Some(prepared.applied.clone());
-        s.once_applied = prepared.once_applied;
+        (s.once_applied, s.once_files_applied) = prepared.once_applied;
         s.save(&state.paths)?;
     }
     let outcome = launch::launch(&state.paths, &settings, &session, &prepared, r).await?;
@@ -449,12 +503,19 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Taille, position, plein écran… mais pas la visibilité : quitté fenêtre
+        // cachée (modes Réduire / Fermer), le launcher se rouvrirait invisible.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
             app.manage(state);
+            first_window_size(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -31,6 +31,9 @@ pub struct Settings {
     pub applied: Option<String>,
     /// Version des réglages « une fois » (`[once]`) déjà posée.
     pub once_applied: u32,
+    /// Et celle des fichiers de `[once]` (`files_version`).
+    #[serde(default)]
+    pub once_files_applied: u32,
     /// Rejoindre directement le serveur au lancement (désactivé par défaut :
     /// le joueur arrive sur le menu du pack).
     pub join_server: bool,
@@ -62,6 +65,7 @@ impl Default for Settings {
             mods: BTreeMap::new(),
             applied: None,
             once_applied: 0,
+            once_files_applied: 0,
             join_server: false,
             launcher_behavior: "reduire".into(),
             account: None,

@@ -45,6 +45,14 @@ pub struct Once {
     pub version: u32,
     #[serde(default)]
     pub options: BTreeMap<String, String>,
+    /// Fichiers de config, posés eux aussi une seule fois (accueil de Voice
+    /// Chat…) : le joueur reste libre de les changer ensuite. Leur propre
+    /// version : les launchers 0.1.x ignorent `files` mais comptent `version`
+    /// — la monter pour des fichiers les leur aurait fait « consommer ».
+    #[serde(default)]
+    pub files_version: u32,
+    #[serde(default)]
+    pub files: BTreeMap<String, FileEdit>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -230,6 +238,10 @@ pub struct Preset {
 pub struct FileEdit {
     pub format: String,
     pub set: toml::Table,
+    /// Ne rien faire si le fichier n'existe pas encore : un mod le crée au
+    /// premier démarrage (defaultoptions…), le créer avant lui l'en empêcherait.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub if_exists: bool,
 }
 
 /// Option du jeu (mode Simple) : ce qu'elle écrit quand elle est activée, et
@@ -398,10 +410,17 @@ impl PresetsFile {
 
 /// Pose une fois les réglages de `[once]` si la version a monté depuis la
 /// dernière fois (`done` : celle déjà posée). Rend la version à retenir.
-pub fn apply_once(paths: &Paths, file: &PresetsFile, done: u32, reporter: &dyn Reporter) -> Result<u32> {
+/// Rend (version des options, version des fichiers) désormais posées.
+pub fn apply_once(paths: &Paths, file: &PresetsFile, done: (u32, u32), reporter: &dyn Reporter) -> Result<(u32, u32)> {
     let Some(once) = &file.once else { return Ok(done) };
-    if once.version <= done {
-        return Ok(done);
+    if once.files_version > done.1 {
+        for (rel, edit) in &once.files {
+            edit_file(&paths.instance().join(rel), edit).with_context(|| format!("réglage de première fois : {rel}"))?;
+        }
+    }
+    let files_done = done.1.max(once.files_version);
+    if once.version <= done.0 {
+        return Ok((done.0, files_done));
     }
     let p = paths.instance().join("options.txt");
     let text = std::fs::read_to_string(&p).unwrap_or_default();
@@ -414,7 +433,7 @@ pub fn apply_once(paths: &Paths, file: &PresetsFile, done: u32, reporter: &dyn R
     std::fs::create_dir_all(p.parent().unwrap())?;
     std::fs::write(&p, lines.join("\n") + "\n")?;
     reporter.log("réglages de première fois posés (langue…)");
-    Ok(once.version)
+    Ok((once.version, files_done))
 }
 
 pub fn apply(paths: &Paths, file: &PresetsFile, r: &Resolved, reporter: &dyn Reporter) -> Result<()> {
@@ -462,7 +481,7 @@ pub fn apply(paths: &Paths, file: &PresetsFile, r: &Resolved, reporter: &dyn Rep
         if let (Some(rel), Some(key), Some(v), true) = (&sl.file, &sl.key, r.sliders.get(id), active(sl)) {
             let mut set = toml::Table::new();
             set.insert(key.clone(), toml::Value::Integer(*v));
-            let edit = FileEdit { format: sl.format.clone().unwrap_or_else(|| "toml".into()), set };
+            let edit = FileEdit { format: sl.format.clone().unwrap_or_else(|| "toml".into()), set, if_exists: false };
             edit_file(&game.join(rel), &edit).with_context(|| format!("réglage {id} : {rel}"))?;
         }
     }
@@ -508,6 +527,9 @@ fn set_options(
 }
 
 fn edit_file(path: &Path, edit: &FileEdit) -> Result<()> {
+    if edit.if_exists && !path.exists() {
+        return Ok(());
+    }
     std::fs::create_dir_all(path.parent().unwrap())?;
     let text = std::fs::read_to_string(path).unwrap_or_default();
     let out = match edit.format.as_str() {
@@ -532,6 +554,12 @@ fn edit_json(text: &str, set: &toml::Table) -> Result<String> {
         serde_json::from_str(text).context("JSON existant illisible")?
     };
     for (key, value) in set {
+        // Clé qui contient elle-même des points (Chat Tools :
+        // « general.RestoreMessages.Enabled ») : telle quelle si elle existe.
+        if let Some(obj) = root.as_object_mut().filter(|o| o.contains_key(key)) {
+            obj.insert(key.clone(), toml_to_json(value));
+            continue;
+        }
         let mut cur = &mut root;
         let parts: Vec<&str> = key.split('.').collect();
         for part in &parts[..parts.len() - 1] {
@@ -927,6 +955,38 @@ mod tests {
         // Grosse carte dédiée : DH actif.
         let pc = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
         assert_eq!(mode(&pc), "DEFAULT");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Réglages « une fois » dans des fichiers : posés à la première
+    /// installation seulement ; `if_exists` ne crée pas le fichier ; une clé
+    /// JSON qui contient des points reste telle quelle.
+    #[test]
+    fn reglages_une_fois_dans_des_fichiers() {
+        let f = parse(REAL).unwrap();
+        let dir = std::env::temp_dir().join(format!("turicraft-once-{}", std::process::id()));
+        let paths = crate::paths::Paths::new(dir.clone());
+        let game = paths.instance();
+        std::fs::create_dir_all(game.join("config")).unwrap();
+        std::fs::write(game.join("config/chat_tools.json"), r#"{"general.RestoreMessages.SplitLineEnabled": true, "general.RestoreMessages.Enabled": true}"#).unwrap();
+        let once = f.once.as_ref().unwrap();
+        // Installation passée par un launcher 0.1.x : options faites, fichiers jamais.
+        let v = apply_once(&paths, &f, (once.version, 0), &crate::progress::ConsoleReporter).unwrap();
+        assert_eq!(v, (once.version, once.files_version));
+        let voice = std::fs::read_to_string(game.join("config/voicechat/voicechat-client.properties")).unwrap();
+        assert!(voice.contains("onboarding_finished=true"));
+        let chat: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(game.join("config/chat_tools.json")).unwrap()).unwrap();
+        assert_eq!(chat["general.RestoreMessages.SplitLineEnabled"], false);
+        assert_eq!(chat["general.RestoreMessages.Enabled"], true);
+        assert!(chat.get("general").is_none());
+        // Déjà posé : le joueur change d'avis, on n'y touche plus.
+        std::fs::write(game.join("config/voicechat/voicechat-client.properties"), "onboarding_finished=false\n").unwrap();
+        apply_once(&paths, &f, v, &crate::progress::ConsoleReporter).unwrap();
+        assert!(std::fs::read_to_string(game.join("config/voicechat/voicechat-client.properties")).unwrap().contains("=false"));
+        // Sans fichier Chat Tools (première installation) : pas créé.
+        std::fs::remove_file(game.join("config/chat_tools.json")).unwrap();
+        apply_once(&paths, &f, (0, 0), &crate::progress::ConsoleReporter).unwrap();
+        assert!(!game.join("config/chat_tools.json").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

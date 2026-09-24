@@ -309,8 +309,22 @@ default = 260
 # change de langue en jeu, c'est son choix. Monter `version` le repose une
 # fois chez tout le monde.
 [once]
-version = 1
+version = 1         # options.txt : la monter les repose UNE fois chez tout le monde
 options = { lang = "fr_fr" }
+files_version = 1   # fichiers ci-dessous, suivis à part (launcher 0.1.4 et plus)
+# Pas d'accueil « Appuie sur V pour configurer » de Simple Voice Chat : V
+# marche toujours. Fichier propre à chaque joueur (micro, volumes) : posé ici,
+# jamais embarqué dans le pack.
+[once.files."config/voicechat/voicechat-client.properties"]
+format = "properties"
+set = { onboarding_finished = "true" }
+# Pas de ligne « ==== Restored Messages ==== » (Chat Tools). Le fichier vient
+# de defaultoptions au premier démarrage, déjà à false : ici, seulement pour
+# les installations existantes.
+[once.files."config/chat_tools.json"]
+format = "json"
+if_exists = true
+set = { "general.RestoreMessages.SplitLineEnabled" = false }
 
 # ─── Ajustements automatiques ───────────────────────────────────────────────
 # Appliqués dans l'ordre, par-dessus le préréglage, quand la machine remplit

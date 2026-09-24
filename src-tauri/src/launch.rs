@@ -30,8 +30,9 @@ pub struct Prepared {
     /// Empreinte des réglages appliqués : à enregistrer dans
     /// `Settings::applied` une fois le lancement parti.
     pub applied: String,
-    /// Version des réglages « une fois » posée (`Settings::once_applied`).
-    pub once_applied: u32,
+    /// Versions des réglages « une fois » posées (`Settings::once_applied`,
+    /// `Settings::once_files_applied`).
+    pub once_applied: (u32, u32),
 }
 
 pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Result<Prepared> {
@@ -74,7 +75,7 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
     } else {
         r.log("réglages inchangés : ceux faits en jeu sont gardés");
     }
-    let once_applied = presets::apply_once(paths, &file, settings.once_applied, r)?;
+    let once_applied = presets::apply_once(paths, &file, (settings.once_applied, settings.once_files_applied), r)?;
     early_window_off(&paths.instance())?;
     windowed_until_loaded(&paths.instance())?;
     Ok(Prepared { java, profile, resolved, applied, once_applied })
