@@ -18,7 +18,8 @@ BASE = os.environ.get("LAUNCHER_BASE_URL", "https://pack.turi-industries.eu/laun
 # plateforme de l'updater → fin du nom du fichier de mise à jour
 PLATFORMS = {
     "linux-x86_64": "_amd64.AppImage",
-    "windows-x86_64": "-setup.exe",
+    "windows-x86_64": "_x64-setup.exe",
+    "windows-aarch64": "_arm64-setup.exe",
     "darwin-aarch64": "_aarch64.app.tar.gz",
     "darwin-x86_64": "_x64.app.tar.gz",
 }

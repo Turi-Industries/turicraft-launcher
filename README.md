@@ -5,7 +5,8 @@ Minecraft 1.21.1, NeoForge). Un bouton « Jouer » : il installe Java, Minecraft
 NeoForge et les mods du pack, choisit les réglages selon la machine, connecte
 le compte Microsoft et lance le jeu.
 
-Tauri 2 (Rust) + SvelteKit (Svelte 5) + bun. Windows, macOS, Linux.
+Tauri 2 (Rust) + SvelteKit (Svelte 5) + bun. Windows (x64 et ARM64), macOS
+(Apple et Intel), Linux (AppImage, .deb).
 
 ## Ce qu'il fait
 

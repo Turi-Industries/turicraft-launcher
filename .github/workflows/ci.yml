@@ -44,17 +44,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: Linux, os: ubuntu-22.04, args: "" }
-          - { name: Windows, os: windows-latest, args: "" }
-          - { name: macOS (Apple), os: macos-latest, args: "--target aarch64-apple-darwin" }
-          - { name: macOS (Intel), os: macos-latest, args: "--target x86_64-apple-darwin" }
+          - { name: Linux, os: ubuntu-22.04, target: "" }
+          - { name: Windows, os: windows-latest, target: "" }
+          # Construit depuis la machine x64 (outils ARM64 de Visual Studio fournis).
+          - { name: Windows (ARM), os: windows-latest, target: aarch64-pc-windows-msvc }
+          - { name: macOS (Apple), os: macos-latest, target: aarch64-apple-darwin }
+          - { name: macOS (Intel), os: macos-latest, target: x86_64-apple-darwin }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ contains(matrix.args, 'darwin') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: "src-tauri -> target" }
       - name: Dépendances système de Tauri
@@ -71,7 +73,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tauriScript: bunx tauri
-          args: ${{ matrix.args }}
+          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+      - name: AppImage sans les libwayland d'Ubuntu (fenêtre grise sinon)
+        if: runner.os == 'Linux'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: scripts/fix-appimage.sh src-tauri/target/release/bundle/appimage/*.AppImage
       # Installeurs (première installation) et fichiers de mise à jour signés.
       - name: Rassembler les fichiers
         shell: bash
@@ -83,8 +91,8 @@ jobs:
                -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) \
             -exec cp {} out/ \;
           # Les deux Mac produisent le même nom : on y met l'architecture.
-          if [[ "${{ matrix.args }}" == *darwin* ]]; then
-            arch=$([[ "${{ matrix.args }}" == *aarch64* ]] && echo aarch64 || echo x64)
+          if [[ "${{ matrix.target }}" == *darwin* ]]; then
+            arch=$([[ "${{ matrix.target }}" == aarch64* ]] && echo aarch64 || echo x64)
             for f in out/*.app.tar.gz out/*.app.tar.gz.sig; do
               [ -e "$f" ] || continue
               mv "$f" "${f/.app.tar.gz/_${arch}.app.tar.gz}"
