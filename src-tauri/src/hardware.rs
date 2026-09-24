@@ -13,6 +13,9 @@ pub struct Hardware {
     pub gpu_name: String,
     pub gpu_dedicated: bool,
     pub vram_gb: f64,
+    /// Puce Apple : processeur et carte graphique partagent la même mémoire.
+    #[serde(default)]
+    pub shared_memory: bool,
     /// L'écran principal : fréquence, VRR.
     #[serde(default)]
     pub display: crate::display::Display,
@@ -24,7 +27,8 @@ pub fn detect() -> Hardware {
     let ram_gb = sys.total_memory() as f64 / 1024f64.powi(3);
     let cpu_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     let (gpu_name, gpu_dedicated, vram_gb) = gpu();
-    Hardware { ram_gb, cpu_threads, gpu_name, gpu_dedicated, vram_gb, display: crate::display::detect() }
+    let shared_memory = cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64";
+    Hardware { ram_gb, cpu_threads, gpu_name, gpu_dedicated, vram_gb, shared_memory, display: crate::display::detect() }
 }
 
 fn run(cmd: &str, args: &[&str]) -> Option<String> {

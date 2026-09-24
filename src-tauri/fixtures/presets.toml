@@ -20,29 +20,64 @@ schema = 1
 # préréglage de `order` dont TOUTES les conditions sont remplies ; à défaut,
 # le dernier. Une puce Apple compte comme « integrated » (mémoire partagée).
 # Le joueur peut toujours changer ensuite.
+#
+# Le préréglage suit la CARTE GRAPHIQUE et le PROCESSEUR : peu de RAM ne veut
+# pas dire des graphismes moches. La RAM règle la mémoire du jeu ([memory])
+# et, dans [[adapt]], ce qui en consomme vraiment (distance de vue lointaine).
 [detection]
 order = ["haut", "moyen", "faible"]
 
 [detection.haut]
-min_ram_gb = 16
 min_cpu_threads = 8
 gpu = "dedicated"      # dedicated | any
 min_vram_gb = 6
 
 [detection.moyen]
-min_ram_gb = 12
+min_ram_gb = 6         # en dessous, même la mémoire du jeu manque
 min_cpu_threads = 6
-gpu = "any"
+gpu = "any"            # cartes intégrées et puces Apple comprises
 min_vram_gb = 0
 
 [detection.faible]
 # toujours accepté
 
 # ─── Mémoire ────────────────────────────────────────────────────────────────
-# Le launcher ne donne jamais plus que (RAM totale − 3 Go) : le système et le
-# pilote graphique en ont besoin (un Mac 8 Go a déjà planté à 6 Go).
+# Selon la RAM de la machine, pas selon la qualité graphique. Le palier le
+# plus haut atteint (RAM arrondie : un « 8 Go » en annonce ~7,6).
+#   8 Go → 6 Go : il en reste 2 pour le système et ce que Java prend hors du tas.
+# Puce Apple : la carte graphique prend sur la même mémoire → `shared_gpu_gb`
+# de moins (Mac 8 Go → 5,5 Go ; à 5 Go, grosses saccades — 24/09).
+# Réglage manuel (mode Avancé) : au plus RAM − `min_free_gb` (− shared_gpu_gb).
 [memory]
-reserve_system_gb = 3
+reserve_system_gb = 3     # launchers 0.1.x seulement
+min_free_gb = 2
+shared_gpu_gb = 0.5
+steps = [
+  { ram = 0,  game = 3 },
+  { ram = 6,  game = 4 },
+  { ram = 8,  game = 6 },
+  { ram = 12, game = 8 },
+  { ram = 24, game = 10 },
+  { ram = 32, game = 12 },
+]
+
+# ─── Ramasse-miettes (Java 21 de Mojang, options vérifiées le 24/09) ────────
+# ZGC générationnel : pauses quasi nulles, mais il lui faut de la marge. Sur
+# un petit tas, il bloque les allocations le temps de nettoyer (« allocation
+# stall ») : de grosses saccades. En dessous de 8 Go ou de 8 fils : G1, réglé
+# pour un client (pauses courtes, jeune génération large, objets peu vieillis).
+[jvm]
+zgc_min_memory_gb = 8
+zgc_min_cpu_threads = 8
+zgc = ["-XX:+UseZGC", "-XX:+ZGenerational"]
+g1 = [
+  "-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=50",
+  "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC",
+  "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M",
+  "-XX:G1ReservePercent=20", "-XX:G1MixedGCCountTarget=4",
+  "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90",
+  "-XX:SurvivorRatio=32", "-XX:MaxTenuringThreshold=1", "-XX:+PerfDisableSharedMem",
+]
 
 # ─── Mods optionnels ────────────────────────────────────────────────────────
 # Chemins des métadonnées packwiz marquées `[option] optional = true`.
@@ -300,6 +335,12 @@ when = { max_ram_gb = 12 }
 sliders = { distance_lointaine = 64 }   # Distant Horizons garde ses LOD en mémoire
 
 [[adapt]]
+note = "8 Go de mémoire"
+presets = ["haut"]
+when = { max_ram_gb = 9 }
+sliders = { distance = 10 }   # les chunks chargés tiennent dans la mémoire du jeu ; l'image reste Haut
+
+[[adapt]]
 note = "grosse carte graphique"
 presets = ["haut"]
 when = { min_vram_gb = 12 }
@@ -336,22 +377,25 @@ sliders = { images = "ecran-3" }
 [presets.faible]
 label = "Faible"
 toggles = { shaders = false, vue_lointaine = false, son_3d = false, objets_physiques = false, synchro_verticale = false }
-description = "Petites machines, 8 Go de RAM : l'essentiel."
-memory_gb = 5
-groups = []
+description = "Processeur modeste : l'essentiel, sans sacrifier l'image."
+memory_gb = 5         # launchers 0.1.x seulement : la mémoire suit la machine ([memory])
+# Bon marché, et ce qui se voit le plus : textures connectées, chat animé.
+groups = ["textures_connectees", "interface_animee"]
 resource_packs = []   # Fresh Animations retiré : EMF est désactivé
 
 [presets.faible.options]   # options.txt, valeurs telles que Minecraft les écrit
-renderDistance = "6"
+# Faible ne sert plus qu'aux PROCESSEURS modestes (moins de 6 fils) : on
+# économise ce qui leur coûte (distance, particules, nuages), pas l'image.
+renderDistance = "8"
 simulationDistance = "5"   # solo seulement ; le serveur impose la sienne
 graphicsMode = "0"         # 0 rapides, 1 détaillés
-particles = "2"            # 0 toutes, 1 réduites, 2 minimales
-mipmapLevels = "0"
-biomeBlendRadius = "0"
-renderClouds = '"false"'
-entityShadows = "false"
-entityDistanceScaling = "0.5"
-ao = "false"               # éclairage adouci : coûteux à la construction des chunks
+particles = "1"            # 0 toutes, 1 réduites, 2 minimales
+mipmapLevels = "2"
+biomeBlendRadius = "1"
+renderClouds = '"fast"'
+entityShadows = "true"
+entityDistanceScaling = "0.75"
+ao = "true"                # éclairage adouci : Sodium le rend peu coûteux
 menuBackgroundBlurriness = "0"
 
 [presets.faible.files."config/sodium-options.json"]
@@ -376,7 +420,7 @@ label = "Moyen"
 # Moyen couvre les cartes graphiques intégrées : shaders coupés par défaut.
 toggles = { shaders = false, objets_physiques = false, premiere_personne = true }
 description = "Animations et lumières, vue à 1 km."
-memory_gb = 6
+memory_gb = 6         # launchers 0.1.x seulement
 groups = ["animations", "joueur", "lumieres", "particules", "textures_connectees", "interface_animee", "aeronautics_visuel", "sons_legers"]
 resource_packs = ["file/FreshAnimations_v1.10.4.zip"]
 
@@ -413,7 +457,7 @@ set = { enabled = "true", environment_evaluation_ray_count = "16", environment_e
 label = "Haut"
 toggles = { premiere_personne = true }
 description = "Tout activé, vue à 2 km."
-memory_gb = 8
+memory_gb = 8         # launchers 0.1.x seulement
 groups = ["animations", "joueur", "lumieres", "particules", "textures_connectees", "interface_animee", "aeronautics_visuel", "sons_legers", "sons_ambiance"]
 resource_packs = ["file/FreshAnimations_v1.10.4.zip"]
 

@@ -57,9 +57,9 @@ const presetsFile = {
 		images: { label: 'Images par seconde maximum', description: 'Réglé sur la fréquence de ton écran : au-delà, les images ne s’affichent pas. 260 = illimité.', min: 30, max: 260, step: 10, unit: 'fps', requires: null }
 	},
 	presets: {
-		faible: { label: 'Faible', description: 'Petites machines, 8 Go de RAM : l’essentiel.', memory_gb: 5, groups: [], toggles: { shaders: false, vue_lointaine: false, son_3d: false, objets_physiques: false } },
-		moyen: { label: 'Moyen', description: 'Animations et lumières, vue à 1 km.', memory_gb: 6, groups: ['animations', 'joueur', 'lumieres'], toggles: { shaders: false, objets_physiques: false } },
-		haut: { label: 'Haut', description: 'Tout activé, vue à 2 km.', memory_gb: 8, groups: ['animations', 'joueur', 'lumieres', 'particules'], toggles: {} }
+		faible: { label: 'Faible', description: 'Petites machines, 8 Go de RAM : l’essentiel.', groups: [], toggles: { shaders: false, vue_lointaine: false, son_3d: false, objets_physiques: false } },
+		moyen: { label: 'Moyen', description: 'Animations et lumières, vue à 1 km.', groups: ['animations', 'joueur', 'lumieres'], toggles: { shaders: false, objets_physiques: false } },
+		haut: { label: 'Haut', description: 'Tout activé, vue à 2 km.', groups: ['animations', 'joueur', 'lumieres', 'particules'], toggles: {} }
 	}
 };
 
@@ -69,7 +69,7 @@ function settings() {
 		preset: p.get('preset') ?? 'auto',
 		custom_base: p.get('preset') === 'personnalise' ? 'haut' : null,
 		custom_groups: p.get('preset') === 'personnalise' ? ['animations', 'joueur', 'lumieres'] : [],
-		custom_memory_gb: p.get('preset') === 'personnalise' ? 8 : null,
+		custom_memory_gb: p.get('preset') === 'personnalise' ? 8.5 : null,
 		toggles: p.get('perso') === '1' ? { vue_lointaine: false } : {},
 		sliders: p.get('perso') === '1' ? { distance: 10 } : {},
 		mods: p.get('perso') === '1' ? { sons_ambiance: false } : {},
@@ -145,9 +145,11 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 					toggles: { shaders: true, vue_lointaine: p.get('perso') !== '1', son_3d: true, objets_physiques: true, premiere_personne: true, synchro_verticale: false, plein_ecran: false, infobulle: true, titres_biomes: true, balancement: true },
 					sliders: { distance: 16, distance_lointaine: 192, interface: 3, images: 141 },
 					adapted: p.get('perso') === '1' ? { distance_lointaine: 'grosse carte graphique' } : { distance: 'grosse carte graphique', distance_lointaine: 'grosse carte graphique', images: 'écran FreeSync / G-Sync actif', interface: 'définition de ton écran principal', synchro_verticale: 'écran FreeSync / G-Sync actif' },
-					memory_gb: 8
+					memory_gb: 10,
+					gc: 'ZGC'
 				},
-				memory_cap_gb: 20
+				memory_cap_gb: 30,
+				memory_auto_gb: 10
 			};
 		case 'server_status':
 			return p.get('serveur') === '0'

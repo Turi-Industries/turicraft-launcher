@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { api } from '$lib/api';
+	import { api, go } from '$lib/api';
 	import { L } from '$lib/state.svelte';
 
 	const preset = $derived(L.pv ? L.pv.file.presets[L.pv.resolved.preset] : null);
@@ -154,7 +154,7 @@
 			<div class="summary">
 				{#if preset}
 					<button class="chip" onclick={() => (L.view = 'qualite')} title="Changer la qualité">
-						Qualité <strong>{L.s?.preset === 'personnalise' ? 'Avancée' : preset.label}</strong> · {L.pv?.resolved.memory_gb} Go
+						Qualité <strong>{L.s?.preset === 'personnalise' ? 'Avancée' : preset.label}</strong> · {L.pv ? go(L.pv.resolved.memory_gb) : ''}
 					</button>
 				{/if}
 				<div class="faint">

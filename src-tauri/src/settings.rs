@@ -17,7 +17,7 @@ pub struct Settings {
     /// Personnalisé : préréglage de départ, groupes cochés, mémoire.
     pub custom_base: Option<String>,
     pub custom_groups: Vec<String>,
-    pub custom_memory_gb: Option<u64>,
+    pub custom_memory_gb: Option<f64>,
     /// Options du jeu (shaders, vue lointaine…) changées par le joueur ;
     /// absentes = valeur conseillée par le préréglage.
     pub toggles: BTreeMap<String, bool>,

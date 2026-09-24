@@ -53,7 +53,6 @@ export interface Overview {
 export interface Preset {
 	label: string;
 	description: string;
-	memory_gb: number;
 	groups: string[];
 	toggles: Record<string, boolean>;
 }
@@ -86,9 +85,17 @@ export interface PresetsView {
 		toggles: Record<string, boolean>;
 		sliders: Record<string, number>;
 		memory_gb: number;
+		gc: string;
 		adapted: Record<string, string>;
 	};
 	memory_cap_gb: number;
+	/** Mémoire conseillée pour cette machine. */
+	memory_auto_gb: number;
+}
+
+/** « 5,5 Go » : les demi-Go s'écrivent à la française. */
+export function go(n: number): string {
+	return `${n.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Go`;
 }
 
 export interface ServerStatus {

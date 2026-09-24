@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { go } from '$lib/api';
 	import { L } from '$lib/state.svelte';
 
 	// Ordre d'affichage ; « auto » n'est pas un préréglage du fichier.
@@ -67,7 +68,7 @@
 	function setBase(id: string) {
 		if (!L.s || !L.pv) return;
 		L.s.custom_base = id;
-		L.s.custom_memory_gb = Math.min(L.pv.file.presets[id].memory_gb, L.pv.memory_cap_gb);
+		L.s.custom_memory_gb = L.pv.memory_auto_gb;
 		L.save();
 	}
 
@@ -161,10 +162,11 @@
 					{/each}
 				</div>
 				<label class="memory">
-					<span>Mémoire pour le jeu : <strong>{L.s.custom_memory_gb ?? L.pv.resolved.memory_gb} Go</strong></span>
+					<span>Mémoire pour le jeu : <strong>{go(L.s.custom_memory_gb ?? L.pv.resolved.memory_gb)}</strong></span>
 					<input
 						type="range"
 						min="3"
+						step="0.5"
 						max={L.pv.memory_cap_gb}
 						value={L.s.custom_memory_gb ?? L.pv.resolved.memory_gb}
 						disabled={L.running}
@@ -174,7 +176,7 @@
 							L.save();
 						}}
 					/>
-					<span class="faint">Au plus {L.pv.memory_cap_gb} Go : le reste est gardé pour le système.</span>
+					<span class="faint">Conseillé pour ta machine : {go(L.pv.memory_auto_gb)}. Au plus {go(L.pv.memory_cap_gb)} : le reste est gardé pour le système.</span>
 				</label>
 			</div>
 		{/if}

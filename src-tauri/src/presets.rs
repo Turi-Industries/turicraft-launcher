@@ -35,6 +35,8 @@ pub struct PresetsFile {
     /// Réglages posés UNE fois par installation (langue…) : ensuite, le
     /// joueur décide. Monter `version` les repose une fois chez tout le monde.
     pub once: Option<Once>,
+    #[serde(default)]
+    pub jvm: Option<JvmCfg>,
     pub presets: BTreeMap<String, Preset>,
 }
 
@@ -165,16 +167,52 @@ impl Slider {
     }
 }
 
+/// Mémoire du jeu, selon la MACHINE et non la qualité graphique : peu de RAM
+/// ne veut pas dire une petite carte graphique.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct MemoryCfg {
+    /// Launchers 0.1.x seulement (RAM − réserve) ; ignoré dès que `steps` existe.
+    #[serde(default)]
     pub reserve_system_gb: u64,
+    /// RAM totale → mémoire du jeu : le palier le plus haut atteint.
+    #[serde(default)]
+    pub steps: Vec<MemoryStep>,
+    /// Retiré sur une puce Apple : la carte graphique prend sur la même mémoire.
+    #[serde(default)]
+    pub shared_gpu_gb: f64,
+    /// Plafond du réglage manuel : RAM − `min_free_gb` (− `shared_gpu_gb`).
+    #[serde(default = "default_min_free")]
+    pub min_free_gb: f64,
+}
+
+fn default_min_free() -> f64 {
+    2.0
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct MemoryStep {
+    pub ram: f64,
+    pub game: f64,
+}
+
+/// Ramasse-miettes. ZGC n'a presque pas de pauses, mais il lui faut de la
+/// marge : sur un petit tas, il bloque les allocations le temps de nettoyer
+/// (« allocation stall ») — de grosses saccades. G1 en dessous.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct JvmCfg {
+    pub zgc_min_memory_gb: f64,
+    pub zgc_min_cpu_threads: usize,
+    pub zgc: Vec<String>,
+    pub g1: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Preset {
     pub label: String,
     pub description: String,
-    pub memory_gb: u64,
+    /// Launchers 0.1.x seulement : la mémoire suit désormais la machine.
+    #[serde(default)]
+    pub memory_gb: Option<u64>,
     #[serde(default)]
     pub groups: Vec<String>,
     #[serde(default)]
@@ -233,7 +271,10 @@ pub struct Resolved {
     pub groups: Vec<String>,
     pub toggles: BTreeMap<String, bool>,
     pub sliders: BTreeMap<String, i64>,
-    pub memory_gb: u64,
+    pub memory_gb: f64,
+    /// Ramasse-miettes retenu (« ZGC », « G1 ») et ses options Java.
+    pub gc: String,
+    pub jvm_flags: Vec<String>,
     /// Ce que les ajustements automatiques ont changé : id → raison.
     pub adapted: BTreeMap<String, String>,
     /// Fichiers écrits par les ajustements automatiques.
@@ -286,10 +327,43 @@ impl PresetsFile {
         order.last().cloned().unwrap_or_else(|| "faible".into())
     }
 
-    /// Mémoire donnée au jeu : jamais plus que RAM totale − réserve système.
-    pub fn memory_cap_gb(&self, hw: &Hardware) -> u64 {
-        // Arrondi : un « 8 Go » annonce ~7,6 Go utilisables.
-        ((hw.ram_gb.round() as i64) - self.memory.reserve_system_gb as i64).max(2) as u64
+    /// RAM annoncée, arrondie : un « 8 Go » annonce ~7,6 Go utilisables, un
+    /// « 16 Go » avec carte intégrée ~15,3.
+    fn ram_rounded(hw: &Hardware) -> f64 {
+        hw.ram_gb.round()
+    }
+
+    fn shared_gpu(&self, hw: &Hardware) -> f64 {
+        if hw.shared_memory { self.memory.shared_gpu_gb } else { 0.0 }
+    }
+
+    /// Mémoire conseillée pour le jeu sur cette machine (par pas de 0,5 Go).
+    pub fn memory_auto_gb(&self, hw: &Hardware) -> f64 {
+        // Même tolérance que la détection : 1 Go (24 Go annoncés 23,2 ; 8 Go, 7,6).
+        let Some(step) = self.memory.steps.iter().filter(|s| hw.ram_gb >= s.ram - 1.0).last() else {
+            return self.memory_cap_gb(hw); // ancien fichier : RAM − réserve
+        };
+        half((step.game - self.shared_gpu(hw)).min(self.memory_cap_gb(hw)))
+    }
+
+    /// Plafond du réglage manuel : ce qu'il faut laisser au système.
+    pub fn memory_cap_gb(&self, hw: &Hardware) -> f64 {
+        let ram = Self::ram_rounded(hw);
+        let cap = if self.memory.steps.is_empty() {
+            ram - self.memory.reserve_system_gb as f64
+        } else {
+            ram - self.memory.min_free_gb - self.shared_gpu(hw)
+        };
+        half(cap.max(2.0))
+    }
+
+    /// Ramasse-miettes et options Java pour cette mémoire et ce processeur.
+    pub fn jvm_for(&self, memory_gb: f64, hw: &Hardware) -> (String, Vec<String>) {
+        match &self.jvm {
+            Some(j) if memory_gb >= j.zgc_min_memory_gb && hw.cpu_threads >= j.zgc_min_cpu_threads => ("ZGC".into(), j.zgc.clone()),
+            Some(j) => ("G1".into(), j.g1.clone()),
+            None => ("ZGC".into(), vec!["-XX:+UseZGC".into(), "-XX:+ZGenerational".into()]),
+        }
     }
 
     /// Fichiers de config que le launcher réécrit (préréglages, options,
@@ -601,11 +675,19 @@ pub fn resolve(file: &PresetsFile, hw: &Hardware, s: &crate::settings::Settings)
             (id.clone(), v.clamp(sl.min, sl.max))
         })
         .collect();
-    let cap = file.memory_cap_gb(hw);
-    let wanted = if s.preset == "personnalise" { s.custom_memory_gb.unwrap_or(preset.memory_gb) } else { preset.memory_gb };
+    let auto = file.memory_auto_gb(hw);
+    let wanted = if s.preset == "personnalise" { s.custom_memory_gb.unwrap_or(auto) } else { auto };
+    let memory_gb = half(wanted.min(file.memory_cap_gb(hw)).max(2.0));
+    let (gc, jvm_flags) = file.jvm_for(memory_gb, hw);
+    let _ = preset;
     // Ce que le joueur a changé lui-même n'est plus « ajusté ».
     adapted.retain(|id, _| !s.toggles.contains_key(id) && !s.sliders.contains_key(id));
-    Resolved { preset: base, groups, toggles, sliders, memory_gb: wanted.min(cap).max(2), adapted, adapt_files }
+    Resolved { preset: base, groups, toggles, sliders, memory_gb, gc, jvm_flags, adapted, adapt_files }
+}
+
+/// Arrondi au demi-Go inférieur.
+fn half(gb: f64) -> f64 {
+    (gb * 2.0).floor() / 2.0
 }
 
 #[cfg(test)]
@@ -634,18 +716,64 @@ mod tests {
             gpu_dedicated: dedicated,
             vram_gb: vram,
             gpu_name: String::new(),
+            shared_memory: false,
             display: Default::default(),
         };
         assert_eq!(f.detect(&hw(32.0, 16, true, 8.0)), "haut");
         assert_eq!(f.detect(&hw(16.0, 8, false, 0.0)), "moyen");
-        assert_eq!(f.detect(&hw(8.0, 8, true, 8.0)), "faible");
-        assert_eq!(f.memory_cap_gb(&hw(8.0, 8, false, 0.0)), 5);
+        // Peu de RAM ne veut pas dire des graphismes moches : la carte et le
+        // processeur choisissent (8 Go + bonne carte → Haut).
+        assert_eq!(f.detect(&hw(7.6, 8, true, 8.0)), "haut");
+        assert_eq!(f.detect(&hw(8.0, 8, false, 0.0)), "moyen");
+        // Faible : processeur modeste, ou vraiment trop peu de mémoire.
+        assert_eq!(f.detect(&hw(16.0, 4, true, 4.0)), "faible");
+        assert_eq!(f.detect(&hw(4.0, 8, false, 0.0)), "faible");
+    }
+
+    /// La mémoire suit la machine ; ZGC seulement s'il a de la marge.
+    #[test]
+    fn memoire_et_ramasse_miettes() {
+        let f = parse(REAL).unwrap();
+        let hw = |ram: f64, cpu: usize, mac: bool| Hardware {
+            ram_gb: ram,
+            cpu_threads: cpu,
+            gpu_dedicated: !mac,
+            vram_gb: if mac { 0.0 } else { 8.0 },
+            gpu_name: String::new(),
+            shared_memory: mac,
+            display: Default::default(),
+        };
+        let s = crate::settings::Settings::default();
+        let r = |h: &Hardware| {
+            let r = resolve(&f, h, &s);
+            (r.memory_gb, r.gc)
+        };
+        assert_eq!(r(&hw(7.6, 8, false)), (6.0, "G1".to_string()));   // PC 8 Go
+        assert_eq!(r(&hw(8.0, 8, true)), (5.5, "G1".to_string()));    // Mac 8 Go : 0,5 de moins (24/09)
+        assert_eq!(r(&hw(16.0, 10, true)), (7.5, "G1".to_string()));  // Mac 16 Go
+        assert_eq!(r(&hw(15.3, 12, false)), (8.0, "ZGC".to_string())); // PC 16 Go
+        assert_eq!(r(&hw(32.0, 8, false)), (12.0, "ZGC".to_string()));
+        assert_eq!(r(&hw(23.2, 20, false)), (10.0, "ZGC".to_string())); // 24 Go annoncés 23,2
+        assert_eq!(r(&hw(15.3, 4, false)), (8.0, "G1".to_string()));  // 4 fils : ZGC manquerait de cœurs
+        // Plafond du réglage manuel : ce qu'il faut au système.
+        assert_eq!(f.memory_cap_gb(&hw(7.6, 8, false)), 6.0);
+        assert_eq!(f.memory_cap_gb(&hw(8.0, 8, true)), 5.5);
+        // 8 Go + bonne carte : Haut, mais distance ramenée à 10 (mémoire), et
+        // vue lointaine à 64 ; les shaders et le reste de l'image restent.
+        let r8 = resolve(&f, &hw(7.6, 8, false), &s);
+        assert_eq!((r8.preset.as_str(), r8.sliders["distance"], r8.sliders["distance_lointaine"]), ("haut", 10, 64));
+        assert!(r8.toggles["shaders"]);
+        // Réglage manuel au-delà du plafond : ramené au plafond.
+        let mut s2 = crate::settings::Settings::default();
+        s2.preset = "personnalise".into();
+        s2.custom_memory_gb = Some(12.0);
+        assert_eq!(resolve(&f, &hw(8.0, 8, true), &s2).memory_gb, 5.5);
     }
 
     #[test]
     fn options_du_jeu() {
         let f = parse(REAL).unwrap();
-        let hw = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 12.0, gpu_name: String::new(), display: Default::default() };
+        let hw = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 12.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
         let mut s = crate::settings::Settings::default();
         // Haut : shaders et objets physiques activés par défaut
         let r = resolve(&f, &hw, &s);
@@ -665,7 +793,7 @@ mod tests {
         let r = resolve(&f, &hw, &s);
         assert!(!r.toggles["shaders"] && !r.toggles["premiere_personne"]);
         // Curseurs : valeur du préréglage, puis celle du joueur, bornée
-        assert_eq!(r.sliders["distance"], 6);
+        assert_eq!(r.sliders["distance"], 8);
         s.preset = "haut".into();
         // 12 Go de VRAM : ajustement « grosse carte graphique » (192 au lieu de 128)
         assert_eq!(resolve(&f, &hw, &s).sliders["distance_lointaine"], 192);
@@ -679,14 +807,14 @@ mod tests {
         let s = crate::settings::Settings::default();
         // Portable à carte intégrée, 4 cœurs, 8 Go : Faible, sans shaders ni
         // son 3D, vue lointaine réduite
-        let hw = Hardware { ram_gb: 7.6, cpu_threads: 4, gpu_dedicated: false, vram_gb: 0.0, gpu_name: String::new(), display: Default::default() };
+        let hw = Hardware { ram_gb: 7.6, cpu_threads: 4, gpu_dedicated: false, vram_gb: 0.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
         let r = resolve(&f, &hw, &s);
         assert_eq!(r.preset, "faible");
         assert!(!r.toggles["shaders"] && !r.toggles["son_3d"]);
         assert_eq!(r.sliders["distance_lointaine"], 64);
         assert!(r.adapted.contains_key("son_3d"));
         // Grosse machine : distance 16, vue lointaine 192, 4 fils pour DH
-        let hw = Hardware { ram_gb: 32.0, cpu_threads: 20, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), display: Default::default() };
+        let hw = Hardware { ram_gb: 32.0, cpu_threads: 20, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
         let r = resolve(&f, &hw, &s);
         assert_eq!((r.sliders["distance"], r.sliders["distance_lointaine"]), (16, 192));
         assert!(r.adapt_files.contains_key("config/DistantHorizons.toml"));
@@ -728,6 +856,7 @@ mod tests {
             gpu_dedicated: true,
             vram_gb: 20.0,
             gpu_name: String::new(),
+            shared_memory: false,
             display: crate::display::Display { refresh_hz: hz, height_px: Some(1440), vrr_capable: vrr, vrr_active: vrr, source: String::new() },
         };
         // Écran 144 Hz, FreeSync actif → synchro coupée, 141 i/s
@@ -793,10 +922,10 @@ mod tests {
             t["client"]["advanced"]["debugging"]["rendererMode"].as_str().unwrap().to_string()
         };
         // Mac à puce Apple : mémoire partagée → carte « intégrée » → DH coupé.
-        let mac = Hardware { ram_gb: 16.0, cpu_threads: 10, gpu_dedicated: false, vram_gb: 0.0, gpu_name: "Apple Silicon".into(), display: Default::default() };
+        let mac = Hardware { ram_gb: 16.0, cpu_threads: 10, gpu_dedicated: false, vram_gb: 0.0, gpu_name: "Apple Silicon".into(), shared_memory: true, display: Default::default() };
         assert_eq!(mode(&mac), "DISABLED");
         // Grosse carte dédiée : DH actif.
-        let pc = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), display: Default::default() };
+        let pc = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
         assert_eq!(mode(&pc), "DEFAULT");
         std::fs::remove_dir_all(&dir).ok();
     }

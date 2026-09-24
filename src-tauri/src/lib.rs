@@ -147,7 +147,9 @@ struct PresetsView {
     file: presets::PresetsFile,
     detected: String,
     resolved: presets::Resolved,
-    memory_cap_gb: u64,
+    memory_cap_gb: f64,
+    /// Mémoire conseillée pour cette machine (mode Simple).
+    memory_auto_gb: f64,
 }
 
 #[tauri::command]
@@ -159,6 +161,7 @@ async fn presets_view(state: State<'_, Arc<AppState>>) -> CmdResult<PresetsView>
         detected: file.detect(&hw),
         resolved: presets::resolve(&file, &hw, &settings),
         memory_cap_gb: file.memory_cap_gb(&hw),
+        memory_auto_gb: file.memory_auto_gb(&hw),
         file,
     })
 }

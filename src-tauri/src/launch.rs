@@ -139,9 +139,9 @@ pub fn command_line(
         xuid: session.xuid.clone(),
         user_type: if session.access_token == "0" { "legacy".into() } else { "msa".into() },
         game_dir: paths.instance(),
-        memory_mb: prepared.resolved.memory_gb * 1024,
-        // ZGC générationnel : ce qui a fait ses preuves sur ce pack.
-        extra_jvm: vec!["-XX:+UseZGC".into(), "-XX:+ZGenerational".into()],
+        memory_mb: (prepared.resolved.memory_gb * 1024.0).round() as u64,
+        // ZGC sur un grand tas, G1 sur un petit (presets.toml, [jvm]).
+        extra_jvm: prepared.resolved.jvm_flags.clone(),
     };
     let (jvm, mut game_args) = minecraft::command_line(paths, &prepared.profile, &vars)?;
     if settings.join_server {
