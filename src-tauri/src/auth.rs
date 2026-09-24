@@ -241,10 +241,86 @@ pub async fn finish_browser_login(client_id: &str, login: BrowserLogin) -> Resul
     session_from_ms(resp.json().await?).await
 }
 
-/// Session à partir du jeton gardé dans le trousseau (lancements suivants).
+// ─── Où vit le jeton de renouvellement ────────────────────────────────────
+//
+// Windows, Linux : le trousseau du système. macOS : un fichier lisible par le
+// seul compte (0600) dans le dossier du launcher, comme Prism ou le launcher
+// officiel. Le trousseau de macOS lie son autorisation à la SIGNATURE de
+// l'application : sans certificat Apple payant, chaque version du launcher est
+// une nouvelle application, et chaque accès (lecture, puis réécriture du jeton
+// que Microsoft renouvelle) redemandait le mot de passe (24/09).
+
+/// Sur macOS seulement (voir plus haut). Choisi à l'exécution, pas à la
+/// compilation : le chemin macOS est ainsi compilé — donc vérifié — partout.
+#[cfg_attr(windows, allow(dead_code))]
+const TOKEN_IN_FILE: bool = cfg!(target_os = "macos");
+
+#[cfg_attr(windows, allow(dead_code))]
+fn token_file() -> std::path::PathBuf {
+    crate::paths::Paths::default_location().root.join("account.token")
+}
+
+fn load_token() -> Option<String> {
+    #[cfg(unix)]
+    if TOKEN_IN_FILE {
+        return file_store::load(&token_file());
+    }
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?.get_password().ok()
+}
+
+fn save_token(rt: &str) -> Result<()> {
+    #[cfg(unix)]
+    if TOKEN_IN_FILE {
+        return file_store::save(&token_file(), rt).context("impossible d'enregistrer le compte");
+    }
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?
+        .set_password(rt)
+        .context("impossible d'enregistrer le compte dans le trousseau du système")
+}
+
+fn delete_token() {
+    #[cfg(unix)]
+    if TOKEN_IN_FILE {
+        return file_store::delete(&token_file());
+    }
+    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+        let _ = entry.delete_credential();
+    }
+}
+
+/// Fichier privé (0600), écrit à côté puis renommé : jamais à moitié écrit,
+/// jamais lisible par un autre compte, même un instant.
+#[cfg(unix)]
+mod file_store {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::path::Path;
+
+    pub fn load(path: &Path) -> Option<String> {
+        let t = std::fs::read_to_string(path).ok()?.trim().to_string();
+        (!t.is_empty()).then_some(t)
+    }
+
+    pub fn save(path: &Path, token: &str) -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let tmp = path.with_extension("tmp");
+        let _ = std::fs::remove_file(&tmp);
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+        f.write_all(token.as_bytes())?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    }
+
+    pub fn delete(path: &Path) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Session à partir du jeton gardé (lancements suivants).
 pub async fn refresh(client_id: &str) -> Result<Session> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
-    let refresh_token = entry.get_password().map_err(|_| anyhow!("aucun compte enregistré : connecte-toi"))?;
+    let refresh_token = load_token().ok_or_else(|| anyhow!("aucun compte enregistré : connecte-toi"))?;
     let resp = http()
         .post(format!("{AUTHORITY}/token"))
         .form(&[
@@ -256,23 +332,19 @@ pub async fn refresh(client_id: &str) -> Result<Session> {
         .send()
         .await?;
     if !resp.status().is_success() {
-        let _ = entry.delete_credential();
+        delete_token();
         bail!("la session a expiré, reconnecte-toi");
     }
     session_from_ms(resp.json().await?).await
 }
 
 pub fn logout() {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
-        let _ = entry.delete_credential();
-    }
+    delete_token();
 }
 
 async fn session_from_ms(ms: MsToken) -> Result<Session> {
     if let Some(rt) = &ms.refresh_token {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?
-            .set_password(rt)
-            .context("impossible d'enregistrer le compte dans le trousseau du système")?;
+        save_token(rt)?;
     }
     let c = http();
 
@@ -370,5 +442,27 @@ mod tests {
     fn uuid_hors_ligne_comme_java() {
         // UUID.nameUUIDFromBytes("OfflinePlayer:Notch".getBytes(UTF_8))
         assert_eq!(super::offline_session("Notch").uuid, "b50ad385829d3141a2167e7d7539ba7f");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests_jeton {
+    use super::file_store;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// Stockage du jeton sur macOS : fichier privé, remplacé d'un coup.
+    #[test]
+    fn jeton_dans_un_fichier_prive() {
+        let dir = std::env::temp_dir().join(format!("turicraft-jeton-{}", std::process::id()));
+        let path = dir.join("account.token");
+        assert_eq!(file_store::load(&path), None);
+        file_store::save(&path, "premier").unwrap();
+        file_store::save(&path, "second").unwrap(); // Microsoft renouvelle le jeton à chaque fois
+        assert_eq!(file_store::load(&path).as_deref(), Some("second"));
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert!(!path.with_extension("tmp").exists());
+        file_store::delete(&path);
+        assert_eq!(file_store::load(&path), None);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
