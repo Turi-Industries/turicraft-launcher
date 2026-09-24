@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Turi Craft",
   "mainBinaryName": "turicraft-launcher",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "eu.turi-industries.launcher",
   "build": {
     "frontendDist": "../build",
