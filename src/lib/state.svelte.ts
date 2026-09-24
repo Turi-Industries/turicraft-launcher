@@ -74,13 +74,6 @@ class LauncherState {
 		return this.progress.total > 0 ? (this.progress.done / this.progress.total) * 100 : 0;
 	});
 
-	/** Secondes restantes estimées (démarrage du jeu), ou null. */
-	remaining = $derived.by(() => {
-		const m = this.milestone;
-		if (!m || m.expected_ms <= 0 || this.inGame) return null;
-		return Math.ceil(Math.max(0, m.expected_ms - (this.now - this.launchStart)) / 1000);
-	});
-
 	log(line: string) {
 		this.logs.push(line);
 		if (this.logs.length > 500) this.logs.splice(0, this.logs.length - 500);

@@ -1,7 +1,6 @@
 # Launcher Turi Craft
 
-Le launcher du modpack **Turi Craft** (Cobblemon × Create Aeronautics,
-Minecraft 1.21.1, NeoForge). Un bouton « Jouer » : il installe Java, Minecraft,
+Le launcher du modpack **Turi Craft V2** (Minecraft 1.21.1, NeoForge). Un bouton « Jouer » : il installe Java, Minecraft,
 NeoForge et les mods du pack, choisit les réglages selon la machine, connecte
 le compte Microsoft et lance le jeu.
 

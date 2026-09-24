@@ -14,7 +14,7 @@
 <aside>
 	<div class="brand">
 		<div class="logo">TURI <span>CRAFT</span></div>
-		<div class="tagline">Cobblemon × Create</div>
+		<div class="tagline">Turi Craft V2</div>
 	</div>
 
 	<nav>

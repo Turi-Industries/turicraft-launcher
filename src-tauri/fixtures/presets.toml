@@ -59,7 +59,9 @@ joueur = [
   "mods/not-enough-animations.pw.toml",
 ]
 premiere_personne = ["mods/first-person-model.pw.toml"]
-lumieres = ["mods/lambdynamiclights.pw.toml"]
+# Contraption Lights éclaire les engins Create PAR LambDynamicLights : sans
+# lui, il affiche en jeu « Lighting mode LAMB, which is not installed ».
+lumieres = ["mods/lambdynamiclights.pw.toml", "mods/contraption-lights.pw.toml"]
 particules = [
   "mods/particular-reforged.pw.toml",
   "mods/make_bubbles_pop.pw.toml",
@@ -87,7 +89,7 @@ label = "Skins 3D, capes, animations"
 description = "Couches de skin en relief, capes qui flottent, bras qui suivent les mouvements."
 [group_info.lumieres]
 label = "Lumières dynamiques"
-description = "Une torche en main éclaire autour de toi."
+description = "Une torche en main éclaire autour de toi, les lampes des engins aussi."
 [group_info.particules]
 label = "Particules supplémentaires"
 description = "Feuilles qui tombent, bulles qui éclatent, lucioles."

@@ -89,9 +89,10 @@ export function previewListen(cb: Handler) {
 	setTimeout(() => {
 		const emit = (e: LauncherEvent) => handlers.forEach((h) => h(e));
 		if (etat === 'prep') {
-			emit({ kind: 'stage', id: 'pack', label: 'Mods et configuration du pack' });
+			emit({ kind: 'stage', id: 'neoforge', label: 'NeoForge 21.1.251' });
 			emit({ kind: 'progress', done: 312, total: 747 });
-			emit({ kind: 'log', line: 'mods/create.pw.toml' });
+			// Ligne réelle de l'installeur NeoForge : un chemin sans espace, très long.
+			emit({ kind: 'log', line: 'Extracting: /home/joueur/.local/share/turicraft/minecraft/libraries/net/neoforged/neoforge/21.1.251/neoforge-21.1.251-universal.jar/data/neoforge/loot_modifiers/global_loot_modifiers.json' });
 		} else if (etat === 'lancement' || etat === 'jeu') {
 			emit({ kind: 'stage', id: 'launch', label: 'Lancement du jeu' });
 			emit({ kind: 'milestone', index: 4, count: 7, label: 'Chargement des ressources', elapsed_ms: 36000, expected_ms: 78000 });
@@ -151,7 +152,7 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 		case 'server_status':
 			return p.get('serveur') === '0'
 				? { online: false, players: 0, max_players: 0, version: '', latency_ms: 0, motd: '', error: 'pas de réponse en 5 s' }
-				: { online: true, players: 3, max_players: 20, version: '1.21.1', latency_ms: 42, motd: 'Turi Craft - Cobblemon x Create Aeronautics', error: null };
+				: { online: true, players: 3, max_players: 20, version: '1.21.1', latency_ms: 42, motd: 'Turi Craft V2', error: null };
 		case 'check_updates':
 			return { pack_installed: '0.1.0', pack_online: p.get('maj') ? '0.2.0' : '0.1.0', launcher_current: '0.1.0' };
 		case 'launcher_update_check':

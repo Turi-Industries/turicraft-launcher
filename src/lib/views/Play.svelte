@@ -13,7 +13,7 @@
 		<section class="hero">
 			<div class="hero-text">
 				<h1>Turi Craft</h1>
-				<p>Cobblemon × Create Aeronautics{L.ov?.pack_version ? ` · pack ${L.ov.pack_version}` : ''}</p>
+				<p>Turi Craft V2{L.ov?.pack_version ? ` · pack ${L.ov.pack_version}` : ''}</p>
 			</div>
 			<div class="server" title={L.server?.error ?? ''}>
 				<span class="dot" class:on={serverUp}></span>
@@ -136,7 +136,6 @@
 			<div class="progress">
 				<div class="line">
 					<span class="stage">{L.inGame ? 'En jeu' : L.milestone ? L.milestone.label : L.stage}</span>
-					{#if L.remaining !== null}<span class="hint">≈ {L.remaining} s</span>{/if}
 					{#if !L.milestone && L.progress.total > 0}<span class="hint">{L.progress.done} / {L.progress.total}</span>{/if}
 				</div>
 				<div class="bar" class:indeterminate={!L.milestone && !L.inGame && L.progress.total === 0}>
@@ -144,9 +143,11 @@
 				</div>
 				<div class="faint detail">
 					{#if L.inGame}Le launcher reste disponible pour arrêter le jeu s’il ne répond plus.
-					{:else if L.milestone && L.milestone.expected_ms === 0}Premier lancement : le temps sera estimé les fois suivantes.
 					{:else if !L.milestone}{L.lastLog}{/if}
 				</div>
+				{#if !L.inGame}
+					<div class="warn">⚠ Ça peut être long, surtout la première fois (plus de 400 mods).</div>
+				{/if}
 			</div>
 			<button class="mc-btn danger" onclick={() => L.stop()}>{L.inGame || L.milestone ? 'Arrêter le jeu' : 'Annuler'}</button>
 		{:else}
@@ -178,6 +179,10 @@
 <style>
 	.play {
 		display: grid;
+		/* Colonne bornée : sans elle, une longue ligne du journal (un chemin
+		   de l'installeur NeoForge) élargit tout l'écran et pousse le bouton
+		   Annuler hors de la fenêtre. */
+		grid-template-columns: minmax(0, 1fr);
 		grid-template-rows: 1fr auto;
 		height: 100%;
 		min-height: 0;
@@ -420,11 +425,17 @@
 			transform: translateX(340%);
 		}
 	}
-	.detail {
+	.detail,
+	.warn {
 		margin-top: 4px;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		min-height: 18px;
+	}
+	.warn {
+		margin-top: 2px;
+		font-size: 12px;
+		color: #c9a227;
 	}
 </style>
