@@ -164,6 +164,7 @@ export const api = {
 	checkUpdates: () => invoke<Updates>('check_updates'),
 	launcherUpdateCheck: () => invoke<LauncherUpdate | null>('launcher_update_check'),
 	launcherUpdateInstall: () => invoke<void>('launcher_update_install'),
+	launcherUpdateLater: () => invoke<void>('launcher_update_later'),
 	news: () => invoke<NewsItem[]>('news'),
 	loginBrowser: () => invoke<Account>('login_browser'),
 	loginCancel: () => invoke<void>('login_cancel'),

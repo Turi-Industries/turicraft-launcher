@@ -41,6 +41,9 @@ struct AppState {
     task: Mutex<Option<JoinHandle<()>>>,
     /// Connexion par le navigateur en attente (annulable).
     login: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// Mise à jour du launcher téléchargée (« Plus tard ») : signature déjà
+    /// vérifiée, installée à la fermeture du launcher.
+    pending_update: Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
 }
 
 /// Envoie les événements du cœur à l'interface, et tient la fenêtre au courant :
@@ -190,10 +193,45 @@ async fn launcher_update_check(app: AppHandle) -> CmdResult<Option<LauncherUpdat
     Ok(update.map(|u| LauncherUpdate { version: u.version.clone(), notes: u.body.clone().unwrap_or_default() }))
 }
 
+/// « Plus tard » : télécharge maintenant (signature vérifiée), installe à la
+/// fermeture du launcher — la réouverture suivante est à jour.
+#[tauri::command]
+async fn launcher_update_later(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    if state.pending_update.lock().unwrap().is_some() {
+        return Ok(());
+    }
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("aucune mise à jour")?;
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| format!("téléchargement impossible : {e}"))?;
+    *state.pending_update.lock().unwrap() = Some((update, bytes));
+    Ok(())
+}
+
+/// Installe la mise à jour mise de côté, s'il y en a une. Sous Windows,
+/// l'installeur prend la main et le processus s'arrête ici.
+fn install_pending(app: &AppHandle) {
+    let Some(state) = app.try_state::<Arc<AppState>>() else { return };
+    let Some((update, bytes)) = state.pending_update.lock().unwrap().take() else { return };
+    if let Err(e) = update.install(bytes) {
+        eprintln!("mise à jour du launcher non installée : {e}");
+    }
+}
+
 /// Télécharge, vérifie la signature, installe, puis redémarre le launcher.
 /// Progression : événement « launcher-update » { done, total }.
 #[tauri::command]
-async fn launcher_update_install(app: AppHandle) -> CmdResult<()> {
+async fn launcher_update_install(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    // Déjà téléchargée par « Plus tard » : on l'installe tout de suite.
+    let pending = state.pending_update.lock().unwrap().take();
+    if let Some((update, bytes)) = pending {
+        update.install(bytes).map_err(|e| format!("mise à jour impossible : {e}"))?;
+        app.restart();
+    }
     let update = app
         .updater()
         .map_err(|e| e.to_string())?
@@ -399,6 +437,7 @@ pub fn run() {
         device_code: Mutex::new(None),
         task: Mutex::new(None),
         login: Mutex::new(None),
+        pending_update: Mutex::new(None),
     });
     tauri::Builder::default()
         // Un second lancement du launcher ramène le premier au lieu d'en
@@ -426,6 +465,7 @@ pub fn run() {
             check_updates,
             launcher_update_check,
             launcher_update_install,
+            launcher_update_later,
             news,
             login_browser,
             login_cancel,
@@ -439,6 +479,12 @@ pub fn run() {
             play,
             stop
         ])
-        .run(tauri::generate_context!())
-        .expect("erreur au démarrage du launcher");
+        .build(tauri::generate_context!())
+        .expect("erreur au démarrage du launcher")
+        .run(|app, event| {
+            // Mise à jour « Plus tard » : posée en quittant.
+            if let tauri::RunEvent::Exit = event {
+                install_pending(app);
+            }
+        });
 }

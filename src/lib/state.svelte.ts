@@ -37,6 +37,10 @@ class LauncherState {
 	launcherUpdate = $state<LauncherUpdate | null>(null);
 	/** Recherche lancée depuis Options : son résultat, affiché sous le bouton. */
 	updateCheck = $state<'idle' | 'checking' | 'uptodate' | 'found' | 'error'>('idle');
+	/** Fenêtre « Nouvelle version » ouverte au démarrage. */
+	updatePrompt = $state(false);
+	/** « Plus tard » : téléchargée en arrière-plan, installée à la fermeture. */
+	updateLater = $state<'idle' | 'downloading' | 'ready' | 'error'>('idle');
 	updating = $state<{ done: number; total: number } | null>(null);
 	updateError = $state<string | null>(null);
 
@@ -143,6 +147,20 @@ class LauncherState {
 		}
 	}
 
+	/** « Plus tard » : on télécharge maintenant, on installe en quittant. */
+	async installLauncherUpdateLater() {
+		this.updatePrompt = false;
+		this.updateError = null;
+		this.updateLater = 'downloading';
+		try {
+			await api.launcherUpdateLater();
+			this.updateLater = 'ready';
+		} catch (e) {
+			this.updateLater = 'error';
+			this.updateError = String(e);
+		}
+	}
+
 	/** Télécharge, vérifie, installe, puis le launcher redémarre tout seul. */
 	async installLauncherUpdate() {
 		this.updateError = null;
@@ -226,7 +244,14 @@ class LauncherState {
 		refreshServer();
 		api.checkUpdates().then((u) => (this.updates = u)).catch(() => {});
 		api.news().then((n) => (this.news = n)).catch(() => {});
-		api.launcherUpdateCheck().then((u) => (this.launcherUpdate = u)).catch(() => {});
+		api.launcherUpdateCheck()
+			.then((u) => {
+				this.launcherUpdate = u;
+				// Aperçu : la fenêtre seulement si demandée (&popup=1), pour ne
+				// pas masquer les autres captures qui utilisent &maj=1.
+				this.updatePrompt = !!u && (!isPreview || p.get('popup') === '1');
+			})
+			.catch(() => {});
 		if (isPreview && p.get('etat') === 'code') this.loginWithCode();
 		if (isPreview && p.get('etat') === 'lien') this.login();
 

@@ -50,6 +50,8 @@
 				<div class="hint">
 					{#if L.updating}Téléchargement… le launcher redémarre tout seul ensuite.
 					{:else if L.updateCheck === 'checking'}Recherche en cours…
+					{:else if L.launcherUpdate && L.updateLater === 'ready'}Version <strong>{L.launcherUpdate.version}</strong> prête : elle s’installe quand tu fermes le launcher.
+					{:else if L.launcherUpdate && L.updateLater === 'downloading'}Version {L.launcherUpdate.version} : téléchargement en arrière-plan…
 					{:else if L.launcherUpdate}Nouvelle version disponible : <strong>{L.launcherUpdate.version}</strong>
 					{:else if L.updateCheck === 'uptodate'}Tu as la dernière version.
 					{:else if L.updateCheck === 'error'}Impossible de vérifier pour l’instant : {L.updateError}
@@ -63,7 +65,7 @@
 			</div>
 			{#if L.launcherUpdate}
 				<button class="mc-btn small" onclick={() => L.installLauncherUpdate()} disabled={!!L.updating || L.running}
-					>Mettre à jour</button
+					>{L.updateLater === 'ready' ? 'Redémarrer maintenant' : 'Mettre à jour'}</button
 				>
 			{:else}
 				<button class="mc-btn small" onclick={() => L.checkLauncherUpdate()} disabled={L.updateCheck === 'checking'}

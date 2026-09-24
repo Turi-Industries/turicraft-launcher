@@ -33,6 +33,7 @@ STATES=(
   "qualite-avance|vue=qualite&preset=personnalise"
   "options|vue=options"
   "options-mise-a-jour|vue=options&maj=1"
+  "mise-a-jour-fenetre|vue=jouer&maj=1&popup=1"
   "journal|vue=journal"
 )
 

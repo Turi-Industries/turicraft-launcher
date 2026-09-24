@@ -6,6 +6,7 @@
 	import Quality from '$lib/views/Quality.svelte';
 	import Options from '$lib/views/Options.svelte';
 	import Journal from '$lib/views/Journal.svelte';
+	import UpdateDialog from '$lib/views/UpdateDialog.svelte';
 
 	onMount(() => L.start());
 </script>
@@ -24,6 +25,7 @@
 		{/if}
 	</main>
 </div>
+<UpdateDialog />
 
 <!-- Mise en page de la fenêtre : dans app.css (.app, .app > main), chargée
      en premier. Le 24/09, un affichage empilé sans défilement a été vu sur

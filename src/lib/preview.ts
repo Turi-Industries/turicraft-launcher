@@ -157,6 +157,9 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 				: { online: true, players: 3, max_players: 20, version: '1.21.1', latency_ms: 42, motd: 'Turi Craft V2', error: null };
 		case 'check_updates':
 			return { pack_installed: '0.1.0', pack_online: p.get('maj') ? '0.2.0' : '0.1.0', launcher_current: '0.1.0' };
+		case 'launcher_update_later':
+			await new Promise((r) => setTimeout(r, 1500));
+			return null;
 		case 'launcher_update_check':
 			return p.get('maj') ? { version: '0.2.0', notes: 'Connexion par lien, réglages selon l’écran.' } : null;
 		case 'skin': {

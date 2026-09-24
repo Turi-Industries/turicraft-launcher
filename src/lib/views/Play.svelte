@@ -64,11 +64,15 @@
 			</section>
 		{/if}
 
-		{#if L.launcherUpdate}
+		{#if L.launcherUpdate && !L.updatePrompt}
 			<section class="panel notice">
 				<div class="grow">
 					<strong>Nouveau launcher : {L.launcherUpdate.version}</strong>
-					{#if L.launcherUpdate.notes}<div class="hint">{L.launcherUpdate.notes}</div>{/if}
+					{#if L.updateLater === 'ready'}
+						<div class="hint">Prêt : il s’installe quand tu fermes le launcher.</div>
+					{:else if L.updateLater === 'downloading'}
+						<div class="hint">Téléchargement en arrière-plan…</div>
+					{:else if L.launcherUpdate.notes}<div class="hint">{L.launcherUpdate.notes}</div>{/if}
 					{#if L.updating}
 						<div class="bar small-bar" class:indeterminate={L.updating.total === 0}>
 							<div style="width: {L.updating.total ? (L.updating.done / L.updating.total) * 100 : 0}%"></div>
@@ -78,7 +82,7 @@
 					{#if L.updateError}<div class="hint">{L.updateError}</div>{/if}
 				</div>
 				<button class="mc-btn small" onclick={() => L.installLauncherUpdate()} disabled={!!L.updating || L.running}
-					>Mettre à jour</button
+					>{L.updateLater === 'ready' ? 'Redémarrer maintenant' : 'Mettre à jour'}</button
 				>
 			</section>
 		{/if}
