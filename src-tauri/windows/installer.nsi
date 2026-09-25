@@ -7,7 +7,11 @@
 ;   1. une page « Raccourcis » : menu Démarrer et bureau, cochés par défaut
 ;      (le raccourci du bureau n'est plus une case de la page de fin) ;
 ;   2. le cache d'icônes de Windows rafraîchi après l'installation : sinon
-;      un raccourci garde l'icône d'une ancienne version (25/09).
+;      un raccourci garde l'icône d'une ancienne version (25/09) ;
+;   3. désinstaller supprime TOUT par défaut (case cochée) : aussi le jeu
+;      (%APPDATA%\turicraft : Java, Minecraft, mods, mondes, captures) et le
+;      compte Microsoft (Gestionnaire d'identification). Jamais quand c'est
+;      l'installeur qui lance le désinstalleur (réinstallation) : /TURIKEEP.
 ; Pages aux couleurs de Windows (texte noir sur fond clair) : lisibles
 ; partout. Le logo passe par les images (bundle.windows.nsis, posées par
 ; scripts/branding.sh).
@@ -374,6 +378,8 @@ Function PageLeaveReinstall
       ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
       ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE
       ${IfThen} $PassiveMode = 1 ${|} StrCpy $R1 "$R1 /P" ${|} ; append /P
+      ; TURI : désinstallation lancée par l'installeur → garder le jeu.
+      StrCpy $R1 "$R1 /TURIKEEP"
       StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
       ExecWait '$R1' $0
     ${EndIf}
@@ -492,10 +498,12 @@ Function un.ConfirmShow ; Add add a `Delete app data` check box
   IntOp $5 $5 / 96
   IntOp $6 $6 / 96
   IntOp $7 $7 / 96
-  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "$(deleteAppData)", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
+  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "Tout supprimer : jeu, mondes solo, captures, réglages et compte", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
   Pop $DeleteAppDataCheckbox
   SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
   SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1
+  ; TURI : cochée par défaut (un.onInit), sauf réinstallation.
+  SendMessage $DeleteAppDataCheckbox ${BM_SETCHECK} $DeleteAppDataCheckboxState 0
 FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave
 Function un.ConfirmLeave
@@ -824,6 +832,13 @@ Function un.onInit
   ${IfNot} ${Errors}
     StrCpy $UpdateMode 1
   ${EndIf}
+
+  ; TURI : tout supprimer par défaut, sauf si l'installeur nous a lancés.
+  StrCpy $DeleteAppDataCheckboxState 1
+  ${GetOptions} $CMDLINE "/TURIKEEP" $0
+  ${IfNot} ${Errors}
+    StrCpy $DeleteAppDataCheckboxState 0
+  ${EndIf}
 FunctionEnd
 
 Section Uninstall
@@ -934,6 +949,11 @@ Section Uninstall
     SetShellVarContext current
     RmDir /r "$APPDATA\${BUNDLEID}"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}"
+
+    ; TURI : le jeu (paths.rs : données de l'utilisateur\turicraft) et le
+    ; jeton Microsoft (auth.rs, crate keyring : cible « <user>.<service> »).
+    RmDir /r "$APPDATA\turicraft"
+    System::Call 'advapi32::CredDeleteW(w "microsoft-refresh-token.turicraft-launcher", i 1, i 0) i .r0'
   ${EndIf}
 
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL
