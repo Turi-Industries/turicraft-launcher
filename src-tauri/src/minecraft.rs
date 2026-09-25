@@ -485,6 +485,7 @@ pub fn command_line(paths: &Paths, profile: &Profile, vars: &LaunchVars) -> Resu
 
     let mut jvm = vec![format!("-Xmx{}m", vars.memory_mb), "-Xms1024m".to_string()];
     jvm.extend(vars.extra_jvm.iter().cloned());
+    jvm.extend(crate::lines::JAVA_UTF8.map(String::from));
     jvm.extend(flatten_args(&profile.jvm_args).iter().map(|a| fill(a)));
     if let Some(l) = &profile.logging {
         let cfg = paths.assets().join("log_configs").join(&l.file.id);

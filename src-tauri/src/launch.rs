@@ -13,7 +13,6 @@ use std::process::Stdio;
 use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result};
-use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::auth::Session;
 use crate::minecraft::{self, LaunchVars, Profile};
@@ -185,13 +184,13 @@ pub async fn launch(
     // stderr : seulement gardé pour le journal du launcher.
     let stderr = child.stderr.take().unwrap();
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
+        let mut lines = crate::lines::Lines::new(stderr);
         while let Ok(Some(_)) = lines.next_line().await {}
     });
 
     let expected = settings.last_milestones_ms.last().copied().unwrap_or(0);
     let mut reached: Vec<u64> = Vec::new();
-    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut lines = crate::lines::Lines::new(child.stdout.take().unwrap());
     while let Some(line) = lines.next_line().await? {
         let next = reached.len();
         if next < MILESTONES.len() && line.contains(MILESTONES[next].0) {

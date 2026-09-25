@@ -7,7 +7,6 @@ use std::path::Path;
 use std::process::Stdio;
 
 use anyhow::{bail, Context, Result};
-use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::minecraft;
 use crate::net::{self, Download, Hash};
@@ -57,6 +56,7 @@ pub async fn ensure_neoforge(paths: &Paths, java: &Path, neoforge: &str, reporte
     reporter.progress(0, 0);
     // Il écrit son journal dans le dossier courant : on lui donne tools/.
     let mut child = tokio::process::Command::new(java)
+        .args(crate::lines::JAVA_UTF8)
         .arg("-jar")
         .arg(&installer)
         .arg("--install-client")
@@ -71,7 +71,7 @@ pub async fn ensure_neoforge(paths: &Paths, java: &Path, neoforge: &str, reporte
     // stderr lu à part : un tube plein non lu bloquerait l'installeur.
     let stderr = child.stderr.take().unwrap();
     let errors = tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
+        let mut lines = crate::lines::Lines::new(stderr);
         let mut kept = Vec::new();
         while let Ok(Some(l)) = lines.next_line().await {
             kept.push(l);
@@ -82,7 +82,7 @@ pub async fn ensure_neoforge(paths: &Paths, java: &Path, neoforge: &str, reporte
         kept
     });
     let stdout = child.stdout.take().unwrap();
-    let mut lines = BufReader::new(stdout).lines();
+    let mut lines = crate::lines::Lines::new(stdout);
     let mut tail: Vec<String> = Vec::new();
     while let Some(line) = lines.next_line().await? {
         // Les étapes intéressantes ; le reste va seulement dans la fin gardée.

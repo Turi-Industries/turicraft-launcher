@@ -7,6 +7,7 @@ pub mod display;
 pub mod hardware;
 pub mod java;
 pub mod launch;
+pub mod lines;
 pub mod minecraft;
 pub mod neoforge;
 pub mod net;

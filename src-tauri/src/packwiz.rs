@@ -14,7 +14,6 @@ use std::process::Stdio;
 
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::paths::Paths;
 use crate::progress::Reporter;
@@ -51,6 +50,7 @@ pub async fn sync(paths: &Paths, java: &Path, pack_url: &str, reporter: &dyn Rep
     std::fs::create_dir_all(&instance)?;
 
     let mut child = tokio::process::Command::new(java)
+        .args(crate::lines::JAVA_UTF8)
         .arg("-jar")
         .arg(paths.tools().join("packwiz-installer-bootstrap.jar"))
         // Sans ces deux options, le bootstrap interroge l'API GitHub à chaque
@@ -71,7 +71,7 @@ pub async fn sync(paths: &Paths, java: &Path, pack_url: &str, reporter: &dyn Rep
 
     let stderr = child.stderr.take().unwrap();
     let errors = tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
+        let mut lines = crate::lines::Lines::new(stderr);
         let mut kept = Vec::new();
         while let Ok(Some(l)) = lines.next_line().await {
             kept.push(l);
@@ -81,7 +81,7 @@ pub async fn sync(paths: &Paths, java: &Path, pack_url: &str, reporter: &dyn Rep
         }
         kept
     });
-    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut lines = crate::lines::Lines::new(child.stdout.take().unwrap());
     let mut tail = Vec::new();
     while let Some(line) = lines.next_line().await? {
         if let Some((done, total)) = parse_counter(&line) {
