@@ -458,6 +458,29 @@ fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
 
 async fn play_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
     let settings = state.settings.lock().unwrap().clone();
+    // Tout ce qui suit passe par le réseau (compte, pack.toml, catalogues,
+    // synchro) : sans lui, un message clair plutôt qu'une erreur de reqwest.
+    let pack_url = settings::pack_url();
+    let installed = packwiz::installed_pack_version(&state.paths).is_some();
+    match net::reachability(&pack_url).await {
+        net::Reach::Ok => {}
+        net::Reach::Offline if !installed => anyhow::bail!(
+            "Pas de connexion Internet.\nElle est nécessaire pour installer le jeu (environ 2 Go à télécharger). \
+             Vérifie ta connexion, puis relance."
+        ),
+        net::Reach::Offline => anyhow::bail!(
+            "Pas de connexion Internet.\nElle est nécessaire pour vérifier ton compte et les mises à jour du pack \
+             avant de jouer. Vérifie ta connexion, puis relance."
+        ),
+        net::Reach::PackDown => {
+            let host = reqwest::Url::parse(&pack_url).ok().and_then(|u| u.host_str().map(String::from));
+            anyhow::bail!(
+                "Le serveur du pack ({}) ne répond pas, alors qu'Internet fonctionne.\n\
+                 Réessaie dans quelques minutes ; si ça dure, préviens un admin.",
+                host.as_deref().unwrap_or(&pack_url)
+            )
+        }
+    }
     // Compte d'abord : inutile de tout préparer pour une session expirée.
     r.stage("account", "Compte");
     let session = match (settings::offline_name(), settings::azure_client_id()) {

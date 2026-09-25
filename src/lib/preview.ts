@@ -4,7 +4,7 @@
 // publiée : n'est chargé que si Tauri est absent.
 //
 // L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
-// &etat=repos|prep|lancement|jeu|crash|code &compte=0 &serveur=0 &maj=1
+// &etat=repos|prep|lancement|jeu|crash|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
 
 import type { LauncherEvent } from './api';
@@ -112,6 +112,19 @@ export function previewListen(cb: Handler) {
 			});
 		}
 	}, 50);
+	return Promise.resolve(() => {});
+}
+
+/** Erreurs de préparation (lib.rs, play_inner), mêmes textes. */
+export function previewError(cb: (message: string) => void) {
+	const etat = params().get('etat');
+	const messages: Record<string, string> = {
+		'hors-ligne':
+			'Pas de connexion Internet.\nElle est nécessaire pour vérifier ton compte et les mises à jour du pack avant de jouer. Vérifie ta connexion, puis relance.',
+		'pack-hs':
+			'Le serveur du pack (pack.turi-industries.eu) ne répond pas, alors qu'Internet fonctionne.\nRéessaie dans quelques minutes ; si ça dure, préviens un admin.'
+	};
+	if (etat && messages[etat]) setTimeout(() => cb(messages[etat]), 50);
 	return Promise.resolve(() => {});
 }
 

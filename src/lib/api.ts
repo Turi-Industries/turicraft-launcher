@@ -3,7 +3,7 @@
 
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { isPreview, previewInvoke, previewListen } from './preview';
+import { isPreview, previewError, previewInvoke, previewListen } from './preview';
 
 // Hors de Tauri (navigateur), un faux cœur répond : voir preview.ts.
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -186,7 +186,7 @@ export function onEvent(cb: (e: LauncherEvent) => void): Promise<UnlistenFn> {
 }
 
 export function onError(cb: (message: string) => void): Promise<UnlistenFn> {
-	if (isPreview) return Promise.resolve(() => {});
+	if (isPreview) return previewError(cb);
 	return listen<string>('launcher-error', (e) => cb(e.payload));
 }
 

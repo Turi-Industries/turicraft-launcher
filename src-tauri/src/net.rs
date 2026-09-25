@@ -23,6 +23,49 @@ pub fn client() -> reqwest::Client {
         .expect("client HTTP")
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Reach {
+    Ok,
+    /// Internet marche, le site du pack non (en panne, ou IP bannie par
+    /// CrowdSec devant le homelab : server/README.md).
+    PackDown,
+    Offline,
+}
+
+/// Avant de jouer : le site du pack répond-il, et sinon Internet tout court ?
+/// 5 s au plus. N'importe quelle réponse HTTP compte : seule une connexion
+/// impossible dit « injoignable » ; les erreurs HTTP ont leur message plus loin.
+pub async fn reachability(pack_url: &str) -> Reach {
+    probe(
+        pack_url,
+        &["https://piston-meta.mojang.com/mc/game/version_manifest_v2.json", "https://login.microsoftonline.com/"],
+    )
+    .await
+}
+
+async fn probe(pack_url: &str, references: &[&str]) -> Reach {
+    let c = reqwest::Client::builder()
+        .user_agent(crate::config::USER_AGENT)
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("client HTTP");
+    let answers = |url: &str| {
+        let req = c.head(url);
+        async move { req.send().await.is_ok() }
+    };
+    let (pack, refs) = futures::join!(
+        answers(pack_url),
+        futures::future::join_all(references.iter().map(|u| answers(u)))
+    );
+    if pack {
+        Reach::Ok
+    } else if refs.into_iter().any(|ok| ok) {
+        Reach::PackDown
+    } else {
+        Reach::Offline
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Hash {
     Sha1(String),
@@ -170,5 +213,16 @@ mod tests {
         assert_ne!(part_path(&dir.join("java.policy")), part_path(&dir.join("java.security")));
         assert_eq!(part_path(&dir.join("java.policy")), dir.join("java.policy.part"));
         assert_eq!(part_path(Path::new("objects/ab/abcdef")), Path::new("objects/ab/abcdef.part"));
+    }
+
+    // Réseau réel : `cargo test --lib -- --ignored joignabilite`.
+    #[tokio::test]
+    #[ignore]
+    async fn joignabilite() {
+        assert_eq!(reachability(crate::config::DEFAULT_PACK_URL).await, Reach::Ok);
+        assert_eq!(reachability("https://pack.invalid/pack.toml").await, Reach::PackDown);
+        // IP bannie par CrowdSec : pas de réponse du tout, fin au délai de 5 s.
+        assert_eq!(reachability("https://10.255.255.1/pack.toml").await, Reach::PackDown);
+        assert_eq!(probe("https://pack.invalid/", &["https://a.invalid/", "https://b.invalid/"]).await, Reach::Offline);
     }
 }
