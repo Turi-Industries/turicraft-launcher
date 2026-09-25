@@ -84,7 +84,7 @@ pub async fn download(client: &reqwest::Client, d: &Download) -> Result<()> {
     if let Some(parent) = d.path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    let part = d.path.with_extension("part");
+    let part = part_path(&d.path);
     let mut last_err = None;
     for attempt in 0..3 {
         if attempt > 0 {
@@ -105,6 +105,15 @@ pub async fn download(client: &reqwest::Client, d: &Download) -> Result<()> {
     }
     let _ = tokio::fs::remove_file(&part).await;
     Err(last_err.unwrap()).with_context(|| format!("téléchargement de {}", d.url))
+}
+
+/// `x.json` → `x.json.part`. Pas `with_extension` : `java.policy` et
+/// `java.security` (runtime Java, téléchargés en parallèle) auraient partagé
+/// `java.part`, et l'un pouvait recevoir le contenu de l'autre.
+fn part_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".part");
+    path.with_file_name(name)
 }
 
 async fn download_once(client: &reqwest::Client, d: &Download, part: &Path) -> Result<()> {
@@ -149,4 +158,17 @@ pub async fn download_all(
         return Err(first);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn un_part_par_fichier() {
+        let dir = Path::new("conf/security");
+        assert_ne!(part_path(&dir.join("java.policy")), part_path(&dir.join("java.security")));
+        assert_eq!(part_path(&dir.join("java.policy")), dir.join("java.policy.part"));
+        assert_eq!(part_path(Path::new("objects/ab/abcdef")), Path::new("objects/ab/abcdef.part"));
+    }
 }

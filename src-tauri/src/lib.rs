@@ -392,6 +392,13 @@ fn repair(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
         }
         std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap()).map_err(|e| e.to_string())?;
     }
+    // Et NeoForge : son installeur repasse (il revérifie ses fichiers).
+    if let Ok(dirs) = std::fs::read_dir(state.paths.versions()) {
+        for d in dirs.flatten() {
+            let id = d.file_name().to_string_lossy().into_owned();
+            let _ = std::fs::remove_file(neoforge::done_marker(&state.paths, &id));
+        }
+    }
     Ok(())
 }
 

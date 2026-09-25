@@ -21,7 +21,8 @@ pub fn version_id(neoforge: &str) -> String {
 pub async fn ensure_neoforge(paths: &Paths, java: &Path, neoforge: &str, reporter: &dyn Reporter) -> Result<String> {
     reporter.stage("neoforge", &format!("NeoForge {neoforge}"));
     let id = version_id(neoforge);
-    if minecraft::is_installed(paths, &id) {
+    let done = done_marker(paths, &id);
+    if done.exists() && minecraft::is_installed(paths, &id) {
         reporter.log("déjà installé");
         return Ok(id);
     }
@@ -101,5 +102,16 @@ pub async fn ensure_neoforge(paths: &Paths, java: &Path, neoforge: &str, reporte
     if !minecraft::version_json_path(paths, &id).exists() {
         bail!("l'installeur NeoForge n'a pas écrit {id}.json");
     }
+    std::fs::write(&done, "")?;
     Ok(id)
+}
+
+/// Posé quand l'installeur a fini sans erreur. `is_installed` ne suffit pas :
+/// l'installeur écrit le JSON et les bibliothèques d'abord, puis fabrique le
+/// jeu patché (`neoforge-X-client.jar`), qui n'est PAS dans la liste des
+/// bibliothèques. Annulé pendant cette étape, tout semblait installé et le
+/// jeu ne démarrait plus. Sans marqueur, on relance l'installeur, qui garde
+/// ce qui est déjà bon (empreintes vérifiées).
+pub fn done_marker(paths: &Paths, id: &str) -> std::path::PathBuf {
+    paths.versions().join(id).join(".turicraft-installe")
 }
