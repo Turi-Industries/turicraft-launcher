@@ -36,6 +36,8 @@ STATES=(
   "qualite-avance|vue=qualite&preset=personnalise"
   "options|vue=options"
   "options-mise-a-jour|vue=options&maj=1"
+  "options-reparation|vue=options&etat=reparation"
+  "options-repare|vue=options&etat=repare"
   "mise-a-jour-fenetre|vue=jouer&maj=1&popup=1"
   "journal|vue=journal"
 )

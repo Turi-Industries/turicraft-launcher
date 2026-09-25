@@ -57,6 +57,11 @@ class LauncherState {
 	crash = $state<CrashSummary | null>(null);
 	/** Pilote graphique qui ralentit le jeu, vu au dernier lancement. */
 	gpuWarning = $state<{ renderer: string; advice: string } | null>(null);
+	/** « Réparer » en cours (Options) : même file que « Jouer », sans lancer le jeu. */
+	repairing = $state(false);
+	repairDone = $state(false);
+	/** « Réparer le launcher » : réinstallation en cours. */
+	reinstalling = $state(false);
 	error = $state<string | null>(null);
 
 	// Connexion Microsoft : par le navigateur (par défaut), ou par code.
@@ -164,6 +169,39 @@ class LauncherState {
 		}
 	}
 
+	/** Revérifie tout, tout de suite (fichiers relus et comparés), sans lancer le jeu. */
+	async repair() {
+		if (this.running) return;
+		this.running = true;
+		this.repairing = true;
+		this.repairDone = false;
+		this.error = null;
+		this.stage = 'Vérification';
+		this.progress = { done: 0, total: 0 };
+		this.log('— Réparation de l’installation');
+		try {
+			await api.repair();
+		} catch (e) {
+			this.running = false;
+			this.repairing = false;
+			this.error = String(e);
+		}
+	}
+
+	/** Réinstalle la dernière version du launcher ; il redémarre tout seul. */
+	async reinstallLauncher() {
+		this.updateError = null;
+		this.reinstalling = true;
+		this.updating = { done: 0, total: 0 };
+		try {
+			await api.launcherReinstall();
+		} catch (e) {
+			this.reinstalling = false;
+			this.updating = null;
+			this.updateError = String(e);
+		}
+	}
+
 	/** Télécharge, vérifie, installe, puis le launcher redémarre tout seul. */
 	async installLauncherUpdate() {
 		this.updateError = null;
@@ -240,7 +278,8 @@ class LauncherState {
 		const p = new URLSearchParams(location.search);
 		const vue = p.get('vue');
 		if (vue === 'jouer' || vue === 'qualite' || vue === 'options' || vue === 'journal') this.view = vue;
-		if (isPreview && ['prep', 'lancement', 'jeu'].includes(p.get('etat') ?? '')) this.running = true;
+		if (isPreview && ['prep', 'lancement', 'jeu', 'reparation'].includes(p.get('etat') ?? '')) this.running = true;
+		if (isPreview && p.get('etat') === 'reparation') this.repairing = true;
 
 		this.refreshOverview().then(() => this.refreshPresets());
 		const refreshServer = () => api.serverStatus().then((s) => (this.server = s));
@@ -283,6 +322,12 @@ class LauncherState {
 						this.inGame = true;
 						this.log(`Jeu prêt en ${(e.elapsed_ms / 1000).toFixed(1)} s`);
 						break;
+					case 'repaired':
+						this.running = false;
+						this.repairing = false;
+						this.repairDone = true;
+						this.log('Installation vérifiée et réparée');
+						break;
 					case 'gpu_warning':
 						this.gpuWarning = { renderer: e.renderer, advice: e.advice };
 						this.log(`Pilote graphique lent : ${e.renderer}`);
@@ -300,6 +345,7 @@ class LauncherState {
 			}),
 			onError((m) => {
 				this.running = false;
+				this.repairing = false;
 				this.milestone = null;
 				this.error = m;
 				this.log(`ERREUR : ${m}`);
@@ -307,6 +353,7 @@ class LauncherState {
 			onLauncherUpdate((p) => (this.updating = p)),
 			onStopped(() => {
 				this.running = false;
+				this.repairing = false;
 				this.inGame = false;
 				this.milestone = null;
 				this.log('Arrêté par le joueur');

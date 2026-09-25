@@ -17,6 +17,8 @@ pub enum Event {
     Milestone { index: usize, count: usize, label: String, elapsed_ms: u64, expected_ms: u64 },
     /// Le jeu est au menu.
     GameReady { elapsed_ms: u64 },
+    /// Réparation terminée : tout est revérifié, le jeu n'est pas lancé.
+    Repaired,
     /// Le pilote graphique ralentit tout le jeu (diag::slow_gl_driver).
     GpuWarning { renderer: String, advice: String },
     /// Le jeu s'est arrêté.
@@ -54,6 +56,7 @@ impl Reporter for ConsoleReporter {
             Event::Milestone { index, count, label, elapsed_ms, .. } => {
                 println!("   [{}/{count}] {label} ({:.1} s)", index + 1, elapsed_ms as f64 / 1000.0)
             }
+            Event::Repaired => println!("   installation vérifiée et réparée"),
             Event::GpuWarning { renderer, advice } => println!("   ATTENTION ({renderer}) : {advice}"),
             Event::GameReady { elapsed_ms } => println!("   jeu au menu en {:.1} s", elapsed_ms as f64 / 1000.0),
             Event::GameExited { code, crash } => {

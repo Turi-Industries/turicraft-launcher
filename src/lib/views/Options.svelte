@@ -8,7 +8,6 @@
 		{ id: 'fermer', label: 'Le fermer', hint: 'Il se rouvre seulement si le jeu plante, pour montrer le rapport.' }
 	];
 
-	let repaired = $state(false);
 </script>
 
 <div class="page">
@@ -87,14 +86,43 @@
 	<div class="panel">
 		<div class="section-title">Dépannage</div>
 		<div class="repair">
-			<div>
-				<strong>Réparer l’installation</strong>
-				<div class="hint">Au prochain lancement, chaque fichier du pack est revérifié et remplacé s’il est abîmé.</div>
+			<div class="grow">
+				<strong>Réparer le jeu</strong>
+				<div class="hint">
+					{#if L.repairing}{L.stage}… chaque fichier est relu et remplacé s’il est abîmé.
+					{:else if L.repairDone}Installation vérifiée : tout est en ordre.
+					{:else}Relit chaque fichier du jeu et du pack, et remplace ceux qui sont abîmés. Quelques minutes.{/if}
+				</div>
+				{#if L.repairing}
+					<div class="bar" class:indeterminate={L.progress.total === 0}>
+						<div style="width: {L.progress.total ? (L.progress.done / L.progress.total) * 100 : 0}%"></div>
+					</div>
+				{:else if L.error && !L.repairDone}
+					<div class="hint problem-text">{L.error}</div>
+				{/if}
 			</div>
-			<button
-				class="mc-btn small"
-				disabled={L.running || repaired}
-				onclick={() => api.repair().then(() => (repaired = true))}>{repaired ? 'Prévu' : 'Réparer'}</button
+			{#if L.repairing}
+				<button class="mc-btn small" onclick={() => L.stop()}>Arrêter</button>
+			{:else}
+				<button class="mc-btn small" disabled={L.running || !!L.updating} onclick={() => L.repair()}>Réparer</button>
+			{/if}
+		</div>
+		<div class="repair sep">
+			<div class="grow">
+				<strong>Réparer le launcher</strong>
+				<div class="hint">
+					{#if L.reinstalling}Téléchargement… le launcher se réinstalle puis redémarre.
+					{:else if L.updateError && !L.launcherUpdate}{L.updateError}
+					{:else}Réinstalle la dernière version du launcher. Ton compte, tes réglages et le jeu sont gardés.{/if}
+				</div>
+				{#if L.reinstalling && L.updating}
+					<div class="bar" class:indeterminate={L.updating.total === 0}>
+						<div style="width: {L.updating.total ? (L.updating.done / L.updating.total) * 100 : 0}%"></div>
+					</div>
+				{/if}
+			</div>
+			<button class="mc-btn small" disabled={L.running || !!L.updating} onclick={() => L.reinstallLauncher()}
+				>Réparer le launcher</button
 			>
 		</div>
 	</div>
@@ -131,6 +159,19 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 16px;
+	}
+	.repair .grow {
+		flex: 1;
+		min-width: 0;
+	}
+	.repair.sep {
+		border-top: 1px solid var(--line);
+		margin-top: 12px;
+		padding-top: 12px;
+	}
+	.problem-text {
+		color: var(--red, #e06c5a);
+		white-space: pre-line;
 	}
 	.bar {
 		height: 8px;

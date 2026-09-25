@@ -294,6 +294,29 @@ async fn launcher_update_install(app: AppHandle, state: State<'_, Arc<AppState>>
         .await
         .map_err(|e| e.to_string())?
         .ok_or("aucune mise à jour")?;
+    download_install_restart(&app, update).await
+}
+
+/// Réparer le launcher : réinstalle la dernière version publiée, MÊME si
+/// c'est celle-ci (fichiers du launcher abîmés, raccourcis perdus, version
+/// x64 sur un PC ARM). Même chemin qu'une mise à jour : signature vérifiée,
+/// installeur, redémarrage. Les réglages et le jeu ne sont pas touchés.
+#[tauri::command]
+async fn launcher_reinstall(app: AppHandle) -> CmdResult<()> {
+    let update = app
+        .updater_builder()
+        .version_comparator(|_, _| true)
+        .build()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| format!("serveur du launcher injoignable : {e}"))?
+        .ok_or("aucune version publiée")?;
+    download_install_restart(&app, update).await
+}
+
+/// Progression : événement « launcher-update » { done, total }.
+async fn download_install_restart(app: &AppHandle, update: tauri_plugin_updater::Update) -> CmdResult<()> {
     let mut done: u64 = 0;
     let progress = app.clone();
     update
@@ -305,7 +328,7 @@ async fn launcher_update_install(app: AppHandle, state: State<'_, Arc<AppState>>
             || {},
         )
         .await
-        .map_err(|e| format!("mise à jour impossible : {e}"))?;
+        .map_err(|e| format!("installation impossible : {e}"))?;
     app.restart();
 }
 
@@ -380,24 +403,63 @@ fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     s.save(&state.paths).map_err(err)
 }
 
-/// Vide les empreintes de packwiz.json : au prochain lancement, packwiz
-/// revérifie chaque fichier (la manœuvre manuelle de CLAUDE.md).
+/// Réparer, tout de suite : la préparation de « Jouer » (Java, Minecraft,
+/// NeoForge, pack, réglages) sans lancer le jeu, chaque fichier relu et
+/// comparé à son empreinte. Même file que « Jouer » : jamais les deux à la
+/// fois. Rend la main tout de suite, la suite arrive par événements.
 #[tauri::command]
-fn repair(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
-    let p = state.paths.instance().join("packwiz.json");
+fn repair(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    let mut task = state.task.lock().unwrap();
+    if task.as_ref().is_some_and(|t| !t.inner().is_finished()) {
+        return Err("déjà en cours".into());
+    }
+    forget_install_state(&state.paths).map_err(|e| e.to_string())?;
+    let st = state.inner().clone();
+    *task = Some(tauri::async_runtime::spawn(async move {
+        let reporter = TauriReporter { app: app.clone(), behavior: "garder".into() };
+        net::set_deep_verify(true);
+        let result = repair_inner(&st, &reporter).await;
+        net::set_deep_verify(false);
+        reporter.taskbar(ProgressBarStatus::None, None);
+        match result {
+            Ok(()) => reporter.send(Event::Repaired),
+            Err(e) => {
+                reporter.taskbar(ProgressBarStatus::Error, None);
+                let _ = app.emit("launcher-error", format!("{e:#}"));
+            }
+        }
+    }));
+    Ok(())
+}
+
+async fn repair_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
+    let settings = state.settings.lock().unwrap().clone();
+    check_network(&state.paths).await?;
+    let prepared = launch::prepare(&state.paths, &settings, r).await?;
+    let mut s = state.settings.lock().unwrap();
+    s.applied = Some(prepared.applied.clone());
+    (s.once_applied, s.once_files_applied) = prepared.once_applied;
+    s.save(&state.paths)
+}
+
+/// Vide les empreintes de packwiz.json (packwiz revérifie alors chaque
+/// fichier du pack — la manœuvre manuelle de CLAUDE.md) et fait repasser
+/// l'installeur NeoForge.
+fn forget_install_state(paths: &Paths) -> anyhow::Result<()> {
+    let p = paths.instance().join("packwiz.json");
     if let Ok(text) = std::fs::read_to_string(&p) {
-        let mut v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let mut v: serde_json::Value = serde_json::from_str(&text)?;
         if let Some(o) = v.as_object_mut() {
             o.remove("packFileHash");
             o.remove("indexFileHash");
         }
-        std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap()).map_err(|e| e.to_string())?;
+        std::fs::write(&p, serde_json::to_string_pretty(&v)?)?;
     }
     // Et NeoForge : son installeur repasse (il revérifie ses fichiers).
-    if let Ok(dirs) = std::fs::read_dir(state.paths.versions()) {
+    if let Ok(dirs) = std::fs::read_dir(paths.versions()) {
         for d in dirs.flatten() {
             let id = d.file_name().to_string_lossy().into_owned();
-            let _ = std::fs::remove_file(neoforge::done_marker(&state.paths, &id));
+            let _ = std::fs::remove_file(neoforge::done_marker(paths, &id));
         }
     }
     Ok(())
@@ -450,6 +512,8 @@ fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
     if let Some(t) = state.task.lock().unwrap().take() {
         t.abort();
     }
+    // Réparation interrompue : la tâche n'est pas allée jusqu'à le remettre.
+    net::set_deep_verify(false);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_progress_bar(ProgressBarState { status: Some(ProgressBarStatus::None), progress: None });
     }
@@ -458,29 +522,7 @@ fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
 
 async fn play_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
     let settings = state.settings.lock().unwrap().clone();
-    // Tout ce qui suit passe par le réseau (compte, pack.toml, catalogues,
-    // synchro) : sans lui, un message clair plutôt qu'une erreur de reqwest.
-    let pack_url = settings::pack_url();
-    let installed = packwiz::installed_pack_version(&state.paths).is_some();
-    match net::reachability(&pack_url).await {
-        net::Reach::Ok => {}
-        net::Reach::Offline if !installed => anyhow::bail!(
-            "Pas de connexion Internet.\nElle est nécessaire pour installer le jeu (environ 2 Go à télécharger). \
-             Vérifie ta connexion, puis relance."
-        ),
-        net::Reach::Offline => anyhow::bail!(
-            "Pas de connexion Internet.\nElle est nécessaire pour vérifier ton compte et les mises à jour du pack \
-             avant de jouer. Vérifie ta connexion, puis relance."
-        ),
-        net::Reach::PackDown => {
-            let host = reqwest::Url::parse(&pack_url).ok().and_then(|u| u.host_str().map(String::from));
-            anyhow::bail!(
-                "Le serveur du pack ({}) ne répond pas, alors qu'Internet fonctionne.\n\
-                 Réessaie dans quelques minutes ; si ça dure, préviens un admin.",
-                host.as_deref().unwrap_or(&pack_url)
-            )
-        }
-    }
+    check_network(&state.paths).await?;
     // Compte d'abord : inutile de tout préparer pour une session expirée.
     r.stage("account", "Compte");
     let session = match (settings::offline_name(), settings::azure_client_id()) {
@@ -508,6 +550,33 @@ async fn play_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
         let mut s = state.settings.lock().unwrap();
         s.last_milestones_ms = outcome.milestones_ms;
         s.save(&state.paths)?;
+    }
+    Ok(())
+}
+
+/// Tout ce qui suit passe par le réseau (compte, pack.toml, catalogues,
+/// synchro) : sans lui, un message clair plutôt qu'une erreur de reqwest.
+async fn check_network(paths: &Paths) -> anyhow::Result<()> {
+    let pack_url = settings::pack_url();
+    let installed = packwiz::installed_pack_version(paths).is_some();
+    match net::reachability(&pack_url).await {
+        net::Reach::Ok => {}
+        net::Reach::Offline if !installed => anyhow::bail!(
+            "Pas de connexion Internet.\nElle est nécessaire pour installer le jeu (environ 2 Go à télécharger). \
+             Vérifie ta connexion, puis relance."
+        ),
+        net::Reach::Offline => anyhow::bail!(
+            "Pas de connexion Internet.\nElle est nécessaire pour vérifier ton compte et les mises à jour du pack \
+             avant de jouer. Vérifie ta connexion, puis relance."
+        ),
+        net::Reach::PackDown => {
+            let host = reqwest::Url::parse(&pack_url).ok().and_then(|u| u.host_str().map(String::from));
+            anyhow::bail!(
+                "Le serveur du pack ({}) ne répond pas, alors qu'Internet fonctionne.\n\
+                 Réessaie dans quelques minutes ; si ça dure, préviens un admin.",
+                host.as_deref().unwrap_or(&pack_url)
+            )
+        }
     }
     Ok(())
 }
@@ -557,6 +626,7 @@ pub fn run() {
             check_updates,
             launcher_update_check,
             launcher_update_install,
+            launcher_reinstall,
             launcher_update_later,
             news,
             login_browser,

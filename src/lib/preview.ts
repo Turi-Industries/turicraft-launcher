@@ -4,7 +4,7 @@
 // publiée : n'est chargé que si Tauri est absent.
 //
 // L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
-// &etat=repos|prep|lancement|jeu|crash|pilote|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
+// &etat=repos|prep|lancement|jeu|crash|pilote|reparation|repare|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
 
 import type { LauncherEvent } from './api';
@@ -97,6 +97,11 @@ export function previewListen(cb: Handler) {
 			emit({ kind: 'stage', id: 'launch', label: 'Lancement du jeu' });
 			emit({ kind: 'milestone', index: 4, count: 7, label: 'Chargement des ressources', elapsed_ms: 36000, expected_ms: 78000 });
 			if (etat === 'jeu') emit({ kind: 'game_ready', elapsed_ms: 78000 });
+		} else if (etat === 'reparation') {
+			emit({ kind: 'stage', id: 'pack', label: 'Pack Turi Craft' });
+			emit({ kind: 'progress', done: 214, total: 431 });
+		} else if (etat === 'repare') {
+			emit({ kind: 'repaired' });
 		} else if (etat === 'pilote') {
 			// Texte de diag::slow_gl_driver (Snapdragon sans pilote OpenGL natif).
 			emit({

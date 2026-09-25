@@ -155,6 +155,7 @@ export type LauncherEvent =
 	  }
 	| { kind: 'game_ready'; elapsed_ms: number }
 	| { kind: 'gpu_warning'; renderer: string; advice: string }
+	| { kind: 'repaired' }
 	| { kind: 'game_exited'; code: number | null; crash: CrashSummary | null };
 
 export const api = {
@@ -165,6 +166,7 @@ export const api = {
 	checkUpdates: () => invoke<Updates>('check_updates'),
 	launcherUpdateCheck: () => invoke<LauncherUpdate | null>('launcher_update_check'),
 	launcherUpdateInstall: () => invoke<void>('launcher_update_install'),
+	launcherReinstall: () => invoke<void>('launcher_reinstall'),
 	launcherUpdateLater: () => invoke<void>('launcher_update_later'),
 	news: () => invoke<NewsItem[]>('news'),
 	loginBrowser: () => invoke<Account>('login_browser'),

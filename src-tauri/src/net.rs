@@ -110,14 +110,23 @@ fn file_hash_matches(path: &Path, hash: &Hash) -> Result<bool> {
     })
 }
 
+/// Réparation en cours : chaque fichier est relu et comparé à son empreinte,
+/// même quand sa taille est bonne (fichier abîmé sans changer de taille).
+static DEEP_VERIFY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_deep_verify(on: bool) {
+    DEEP_VERIFY.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Déjà là et bon ? Quand la taille est connue, on se contente d'elle : relire
 /// les ~4 000 fichiers d'assets à chaque lancement coûterait plusieurs secondes.
 fn already_valid(d: &Download) -> bool {
     let Ok(meta) = std::fs::metadata(&d.path) else { return false };
-    match d.size {
-        Some(size) => meta.len() == size,
-        None => file_hash_matches(&d.path, &d.hash).unwrap_or(false),
+    let size_ok = d.size.map_or(true, |size| meta.len() == size);
+    if DEEP_VERIFY.load(std::sync::atomic::Ordering::SeqCst) || d.size.is_none() {
+        return size_ok && file_hash_matches(&d.path, &d.hash).unwrap_or(false);
     }
+    size_ok
 }
 
 pub async fn download(client: &reqwest::Client, d: &Download) -> Result<()> {
