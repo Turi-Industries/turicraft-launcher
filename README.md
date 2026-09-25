@@ -91,6 +91,22 @@ et ARM64 dans le même fichier, `src-tauri/windows/universel.nsh`), macOS
 (universel Intel + Apple), Linux (AppImage, .deb) —, signés pour la mise à
 jour, et `latest.json`, dans une version GitHub.
 
+Une version se construit en ~7 min grâce au cache Rust, que
+`.github/workflows/cache.yml` préchauffe sur `main` (un tag ne relit jamais
+le cache d'un autre tag). Toute variable d'environnement ajoutée aux étapes
+de construction de `ci.yml` doit l'être aussi à `cache.yml`, sinon le cache
+ne sert plus (`actions/setup-python` y a déjà piégé Linux).
+
+**Installeur Windows** : `src-tauri/windows/installer.nsi`, copie du modèle
+NSIS de Tauri CLI 2.11.5, changements marqués « TURI » (page Raccourcis,
+cache d'icônes, désinstallation complète par défaut). En montant
+`@tauri-apps/cli`, reprendre le modèle de la nouvelle version et y reporter
+ces blocs. Vérifiable sans Windows : `brew install makensis`.
+
+**Images des installeurs** (bandeau et en-tête Windows, fond du .dmg) :
+`scripts/installer-images.py`, appelé par `scripts/branding.sh` avec le logo ;
+elles restent hors du dépôt, comme lui.
+
 ## Licence
 
 [GPL-3.0-or-later](LICENSE). Les jars de `tools/` ont leur propre licence
