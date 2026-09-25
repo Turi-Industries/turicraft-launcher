@@ -1,0 +1,63 @@
+name: Cache
+
+# Préchauffe le cache Rust des installeurs, sur main SEULEMENT.
+#
+# GitHub ne laisse une construction relire que les caches de sa branche ou
+# de main. Un tag (vX.Y.Z) ne relit donc jamais le cache d'un autre tag :
+# chaque version repartait presque de zéro (Windows 11 min, dont 7 pour le
+# launcher ARM64), et ses caches inutilisables faisaient déborder les 10 Go
+# du dépôt (25/09). Ici, main écrit ; ci.yml, sur un tag, lit sans écrire.
+#
+# Mêmes commandes et même clé (shared-key) que les installeurs de ci.yml :
+# sinon rien ne se partage. `--no-bundle` : la compilation, pas les paquets.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/cache.yml"
+  # GitHub efface un cache inutilisé depuis 7 jours : deux passages par
+  # semaine le gardent chaud, même sans version.
+  schedule:
+    - cron: "17 4 * * 1,4"
+  workflow_dispatch:
+
+concurrency:
+  group: cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: Cache ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux, os: ubuntu-22.04, rust: "", targets: "" }
+          - { name: Windows, os: windows-latest, rust: aarch64-pc-windows-msvc, targets: "aarch64-pc-windows-msvc" }
+          - { name: macOS, os: macos-latest, rust: "aarch64-apple-darwin,x86_64-apple-darwin", targets: "universal-apple-darwin" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: installeur-${{ matrix.name }}
+      - name: Dépendances système de Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev
+      - run: bun install --frozen-lockfile
+      # Windows : le x64 (cible par défaut) PUIS l'ARM64, comme ci.yml.
+      - name: Compilation (x64 / Linux)
+        if: runner.os != 'macOS'
+        run: bunx tauri build --no-bundle
+      - name: Compilation (${{ matrix.targets }})
+        if: matrix.targets != ''
+        run: bunx tauri build --no-bundle --target ${{ matrix.targets }}

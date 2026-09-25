@@ -21,7 +21,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: "src-tauri -> target" }
+        with:
+          workspaces: "src-tauri -> target"
+          # Écrit sur main seulement (les autres branches le relisent).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Dépendances système de Tauri
         run: |
           sudo apt-get update
@@ -59,8 +62,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust }}
+      # Cache partagé avec cache.yml (même clé), écrit par main seulement :
+      # un tag relit celui de main mais n'écrit rien — ses caches ne
+      # servaient à aucune autre version et faisaient déborder le quota.
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: "src-tauri -> target" }
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: installeur-${{ matrix.name }}
+          save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Dépendances système de Tauri
         if: runner.os == 'Linux'
         run: |
