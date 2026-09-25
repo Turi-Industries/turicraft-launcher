@@ -23,7 +23,9 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 if [[ "$SRC" == http://* || "$SRC" == https://* ]]; then
-	curl -fsSL --retry 3 -o "$TMP/logo.png" "$SRC"
+	# --retry-all-errors : le 25/09, un runner macOS n'a pas résolu le nom
+	# pendant une douzaine de secondes (curl 6), les autres si.
+	curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o "$TMP/logo.png" "$SRC"
 else
 	cp "$SRC" "$TMP/logo.png"
 fi
