@@ -9,10 +9,15 @@
 		{ id: 'journal', label: 'Journal', icon: 'M5 4h14v16H5zM8 8h8M8 12h8M8 16h5' }
 	];
 
+	// Logo posé par scripts/branding.sh (absent du dépôt) ; sans lui, le texte seul.
+	const logo = Object.values(
+		import.meta.glob<string>('../assets/branding/logo.png', { eager: true, query: '?url', import: 'default' })
+	)[0];
 </script>
 
 <aside>
 	<div class="brand">
+		{#if logo}<img class="mark" src={logo} alt="" />{/if}
 		<div class="logo">TURI <span>CRAFT</span></div>
 		<div class="tagline">Turi Craft V2</div>
 	</div>
@@ -67,6 +72,12 @@
 	}
 	.brand {
 		padding: 22px 18px 18px;
+	}
+	.mark {
+		display: block;
+		width: 64px;
+		height: 64px;
+		margin-bottom: 10px;
 	}
 	.logo {
 		font-family: var(--pixel);

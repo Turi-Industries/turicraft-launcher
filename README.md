@@ -94,6 +94,11 @@ pour la mise à jour, et `latest.json`, dans une version GitHub.
 [GPL-3.0-or-later](LICENSE). Les jars de `tools/` ont leur propre licence
 (MIT, voir [`tools/README.md`](tools/README.md)).
 
+Le nom et le logo **Turi Craft** ne sont pas couverts par la GPL : tous
+droits réservés, Turi Industries. Le logo n'est pas dans ce dépôt : la CI le
+pose au moment de construire (`scripts/branding.sh`). Une version modifiée
+garde l'icône provisoire et doit porter un autre nom.
+
 Le modpack lui-même (mods, configurations) n'est pas dans ce dépôt : le
 launcher le télécharge au lancement.
 

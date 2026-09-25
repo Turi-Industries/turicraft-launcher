@@ -25,3 +25,6 @@ static/skin-apercu.png
 
 # Scripts Python
 __pycache__/
+
+# Logo Turi Craft (scripts/branding.sh) : pas dans le dépôt, pas sous GPL
+src/lib/assets/branding/
