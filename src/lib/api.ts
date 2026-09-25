@@ -157,7 +157,7 @@ export type LauncherEvent =
 			expected_ms: number;
 	  }
 	| { kind: 'game_ready'; elapsed_ms: number }
-	| { kind: 'gpu_warning'; renderer: string; advice: string }
+	| { kind: 'gpu_warning'; title: string; renderer: string; advice: string }
 	| { kind: 'repaired' }
 	| { kind: 'game_exited'; code: number | null; crash: CrashSummary | null };
 

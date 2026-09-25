@@ -120,7 +120,7 @@
 
 		{#if L.gpuWarning}
 			<section class="panel problem">
-				<div class="section-title">Pilote graphique à mettre à jour</div>
+				<div class="section-title">{L.gpuWarning.title}</div>
 				<p>{L.gpuWarning.advice}</p>
 				<p class="hint">Carte vue par le jeu : {L.gpuWarning.renderer}</p>
 				<div class="row">

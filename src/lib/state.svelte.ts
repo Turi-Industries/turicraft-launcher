@@ -56,7 +56,7 @@ class LauncherState {
 	inGame = $state(false);
 	crash = $state<CrashSummary | null>(null);
 	/** Pilote graphique qui ralentit le jeu, vu au dernier lancement. */
-	gpuWarning = $state<{ renderer: string; advice: string } | null>(null);
+	gpuWarning = $state<{ title: string; renderer: string; advice: string } | null>(null);
 	/** « Réparer » en cours (Options) : même file que « Jouer », sans lancer le jeu. */
 	repairing = $state(false);
 	repairDone = $state(false);
@@ -340,8 +340,8 @@ class LauncherState {
 						this.refreshOverview();
 						break;
 					case 'gpu_warning':
-						this.gpuWarning = { renderer: e.renderer, advice: e.advice };
-						this.log(`Pilote graphique lent : ${e.renderer}`);
+						this.gpuWarning = { title: e.title, renderer: e.renderer, advice: e.advice };
+						this.log(`${e.title} : ${e.renderer}`);
 						break;
 					case 'game_exited':
 						this.running = false;

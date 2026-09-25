@@ -116,9 +116,40 @@ pub fn slow_gl_driver(line: &str) -> Option<(String, &'static str)> {
     Some((renderer, advice))
 }
 
+/// Le jeu tourne sur la carte INTÉGRÉE alors que la machine en a une grosse
+/// (portable à deux cartes : Windows choisit l'économie d'énergie par
+/// défaut). Rend le nom vu par le jeu.
+pub fn integrated_instead_of_dedicated(line: &str, hw: &crate::hardware::Hardware) -> Option<String> {
+    if !hw.gpu_dedicated {
+        return None;
+    }
+    let renderer = line.split_once("OpenGL Renderer:")?.1.trim().to_string();
+    let r = renderer.to_lowercase();
+    // Intel intégrée (UHD, Iris, « Intel(R) Graphics ») — pas une Arc.
+    let intel = r.contains("intel") && !r.contains("arc");
+    // AMD intégrée : « AMD Radeon(TM) Graphics », « Radeon 780M » — pas une RX.
+    let amd = r.contains("radeon") && !r.contains(" rx") && !r.contains("pro ");
+    (intel || amd).then_some(renderer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::slow_gl_driver;
+
+    #[test]
+    fn jeu_sur_la_carte_integree() {
+        use super::integrated_instead_of_dedicated as on_igpu;
+        let l = "[Render thread/INFO] [com.mojang.blaze3d.platform.Window/]: OpenGL Renderer: ";
+        let hw = crate::hardware::Hardware { gpu_dedicated: true, gpu_name: "NVIDIA GeForce RTX 4070 Laptop GPU".into(), ..Default::default() };
+        assert!(on_igpu(&format!("{l}Intel(R) UHD Graphics"), &hw).is_some());
+        assert!(on_igpu(&format!("{l}AMD Radeon(TM) Graphics"), &hw).is_some());
+        assert!(on_igpu(&format!("{l}NVIDIA GeForce RTX 4070 Laptop GPU/PCIe/SSE2"), &hw).is_none());
+        assert!(on_igpu(&format!("{l}AMD Radeon RX 7600"), &hw).is_none());
+        assert!(on_igpu(&format!("{l}Intel(R) Arc(TM) A770 Graphics"), &hw).is_none());
+        // Pas de grosse carte : rien à signaler.
+        let igpu = crate::hardware::Hardware { gpu_dedicated: false, ..Default::default() };
+        assert!(on_igpu(&format!("{l}Intel(R) UHD Graphics"), &igpu).is_none());
+    }
 
     #[test]
     fn pilote_graphique_lent() {

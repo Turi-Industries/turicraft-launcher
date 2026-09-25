@@ -4,7 +4,7 @@
 // publiée : n'est chargé que si Tauri est absent.
 //
 // L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
-// &etat=repos|prep|lancement|jeu|crash|pilote|reparation|repare|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
+// &etat=repos|prep|lancement|jeu|crash|pilote|integree|reparation|repare|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
 
 import type { LauncherEvent } from './api';
@@ -102,10 +102,20 @@ export function previewListen(cb: Handler) {
 			emit({ kind: 'progress', done: 214, total: 431 });
 		} else if (etat === 'repare') {
 			emit({ kind: 'repaired' });
+		} else if (etat === 'integree') {
+			// Texte de launch.rs (diag::integrated_instead_of_dedicated).
+			emit({
+				kind: 'gpu_warning',
+				title: 'Le jeu tourne sur la carte graphique intégrée',
+				renderer: 'Intel(R) UHD Graphics',
+				advice:
+					'Ta machine a une carte plus puissante (NVIDIA GeForce RTX 4070 Laptop GPU). Dans Windows : Paramètres → Système → Affichage → Graphiques → javaw.exe (dans le dossier turicraft) → Hautes performances. Puis relance le jeu.'
+			});
 		} else if (etat === 'pilote') {
 			// Texte de diag::slow_gl_driver (Snapdragon sans pilote OpenGL natif).
 			emit({
 				kind: 'gpu_warning',
+				title: 'Pilote graphique à mettre à jour',
 				renderer: 'D3D12 (Qualcomm(R) Adreno(TM) X1-85 GPU)',
 				advice:
 					'OpenGL passe par une couche de compatibilité DirectX 12 : le jeu tourne bien plus lentement. Installe le dernier pilote graphique de ton PC (Windows Update → Options avancées → Mises à jour facultatives, ou le site du fabricant).'

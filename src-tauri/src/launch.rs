@@ -119,6 +119,31 @@ pub fn import_game_changes(paths: &Paths, file: &presets::PresetsFile, hw: &crat
     changed
 }
 
+/// Préférence « Hautes performances » de Windows (Paramètres → Affichage →
+/// Graphiques) pour le Java du jeu : sans elle, un portable à deux cartes
+/// lançait le jeu sur l'intégrée (25/09). Vaut pour NVIDIA et AMD. Un choix
+/// déjà fait pour ce programme (par le joueur) est laissé tel quel.
+#[cfg(windows)]
+fn prefer_dedicated_gpu(java: &Path, r: &dyn Reporter) {
+    use std::os::windows::process::CommandExt;
+    const KEY: &str = r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences";
+    let exe = java.display().to_string();
+    let reg = |args: &[&str]| {
+        std::process::Command::new("reg")
+            .args(args)
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    if reg(&["query", KEY, "/v", &exe]) {
+        return;
+    }
+    if reg(&["add", KEY, "/v", &exe, "/t", "REG_SZ", "/d", "GpuPreference=2;", "/f"]) {
+        r.log("carte graphique : le jeu utilisera la plus puissante (réglage Windows posé)");
+    }
+}
+
 /// Le jeu démarre TOUJOURS en fenêtré ; le plein écran vient après le
 /// chargement (kubejs/client_scripts/40_plein_ecran.js). Le choix du joueur
 /// est lu dans options.txt — ce que le préréglage vient d'y écrire, ou ce
@@ -218,6 +243,14 @@ pub async fn launch(
         .kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    // Portable à deux cartes : le jeu sur la grosse, pas sur l'intégrée.
+    let hw = hardware::detect();
+    #[cfg(windows)]
+    if hw.gpu_dedicated {
+        // Reconnue par le pilote NVIDIA (Optimus) : celle du Minecraft Launcher.
+        cmd.env("SHIM_MCCOMPAT", "0x800000001");
+        prefer_dedicated_gpu(&prepared.java, r);
+    }
     let mut child = cmd.spawn().context("lancement de Java")?;
 
     // stderr : seulement gardé pour le journal du launcher.
@@ -233,7 +266,18 @@ pub async fn launch(
     while let Some(line) = lines.next_line().await? {
         if let Some((renderer, advice)) = crate::diag::slow_gl_driver(&line) {
             r.log(&format!("pilote graphique lent : {renderer}"));
-            r.send(Event::GpuWarning { renderer, advice: advice.into() });
+            r.send(Event::GpuWarning { title: "Pilote graphique à mettre à jour".into(), renderer, advice: advice.into() });
+        } else if let Some(renderer) = crate::diag::integrated_instead_of_dedicated(&line, &hw) {
+            r.log(&format!("jeu lancé sur la carte intégrée : {renderer}"));
+            r.send(Event::GpuWarning {
+                title: "Le jeu tourne sur la carte graphique intégrée".into(),
+                renderer,
+                advice: format!(
+                    "Ta machine a une carte plus puissante ({}). Dans Windows : Paramètres → Système → Affichage → \
+                     Graphiques → javaw.exe (dans le dossier turicraft) → Hautes performances. Puis relance le jeu.",
+                    hw.gpu_name
+                ),
+            });
         }
         let next = reached.len();
         if next < MILESTONES.len() && line.contains(MILESTONES[next].0) {
