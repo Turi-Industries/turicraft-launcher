@@ -49,8 +49,8 @@ cp "$TMP/icons/128x128@2x.png" src/lib/assets/branding/logo.png
 
 # Images des installeurs (Windows : accueil, en-tête ; macOS : fenêtre du
 # .dmg), et la config qui les déclare — à passer à `tauri build --config`.
-# Pillow : python du système, sinon celui de actions/setup-python (CI).
-PY="$(command -v python || command -v python3)"
+# Pillow : $PYTHON (CI : actions/setup-python), sinon celui du système.
+PY="${PYTHON:-$(command -v python || command -v python3)}"
 "$PY" -m pip install --quiet pillow 2>/dev/null \
 	|| "$PY" -m pip install --quiet --user --break-system-packages pillow
 "$PY" scripts/installer-images.py "$TMP/logo.png"

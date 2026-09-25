@@ -79,12 +79,19 @@ jobs:
       # Logo Turi Craft (hors dépôt, pas sous GPL) : variable TURI_LOGO_URL du
       # dépôt. Absente (fork) : l'icône provisoire reste.
       # Pillow pour les images des installeurs (scripts/installer-images.py).
+      # update-environment: false — sinon setup-python pose PKG_CONFIG_PATH,
+      # que surveillent les bibliothèques GTK : Linux recompilait 43 crates
+      # au lieu de reprendre le cache (v0.1.10, 25/09).
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        id: python
+        with:
+          python-version: "3.12"
+          update-environment: false
       - name: Logo
         shell: bash
         env:
           TURI_LOGO_URL: ${{ vars.TURI_LOGO_URL }}
+          PYTHON: ${{ steps.python.outputs.python-path }}
         run: scripts/branding.sh
       - name: Launcher ARM64, embarqué dans l'installeur Windows
         if: runner.os == 'Windows'
