@@ -21,11 +21,17 @@ BASE = os.environ.get("LAUNCHER_BASE_URL", "https://pack.turi-industries.eu/laun
 # installé sur un PC ARM redevient ainsi natif à sa prochaine mise à jour.
 PLATFORMS = {
     "linux-x86_64": "_amd64.AppImage",
+    # Installé par le .deb : le module de mise à jour cherche d'abord cette
+    # entrée ; sans elle, il prenait l'AppImage et refusait de l'installer.
+    "linux-x86_64-deb": "_amd64.deb",
     "windows-x86_64": "_windows-setup.exe",
     "windows-aarch64": "_windows-setup.exe",
     "darwin-aarch64": "_universal.app.tar.gz",
     "darwin-x86_64": "_universal.app.tar.gz",
 }
+
+# Pas de signature produite (version de Tauri) : ignorée plutôt que bloquante.
+OPTIONAL = {"linux-x86_64-deb"}
 
 
 def main() -> None:
@@ -40,6 +46,9 @@ def main() -> None:
         name = match[0]
         sig = os.path.join(folder, name + ".sig")
         if not os.path.exists(sig):
+            if platform in OPTIONAL:
+                print(f"sans signature, ignoré : {platform} ({name})", file=sys.stderr)
+                continue
             sys.exit(f"signature manquante : {name}.sig (TAURI_SIGNING_PRIVATE_KEY ?)")
         platforms[platform] = {
             "signature": open(sig).read().strip(),

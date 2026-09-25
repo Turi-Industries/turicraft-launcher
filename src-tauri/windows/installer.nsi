@@ -4,10 +4,13 @@
 ; Copie du modèle NSIS de Tauri CLI 2.11.5 (tauri-bundler, installer.nsi,
 ; tag tauri-cli-v2.11.5), déclarée dans tauri.conf.json
 ; (bundle.windows.nsis.template). Nos changements sont marqués « TURI » :
-;   1. une seule étape : ni accueil, ni choix de dossier, ni page de fin —
-;      une barre de progression, puis le launcher s'ouvre ;
-;   2. aux couleurs du launcher : fond #121316, texte clair, barre jaune
-;      #f5c518, sans boutons inutiles.
+;   1. une page « Raccourcis » : menu Démarrer et bureau, cochés par défaut
+;      (le raccourci du bureau n'est plus une case de la page de fin) ;
+;   2. le cache d'icônes de Windows rafraîchi après l'installation : sinon
+;      un raccourci garde l'icône d'une ancienne version (25/09).
+; Pages aux couleurs de Windows (texte noir sur fond clair) : lisibles
+; partout. Le logo passe par les images (bundle.windows.nsis, posées par
+; scripts/branding.sh).
 ; Monter @tauri-apps/cli (bun.lock) : reprendre le modèle de la nouvelle
 ; version et y reporter ces blocs — les variables entre doubles accolades
 ; peuvent changer.
@@ -178,11 +181,6 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !define MUI_LANGDLL_REGISTRY_ROOT "HKCU"
 !define MUI_LANGDLL_REGISTRY_KEY "${MANUPRODUCTKEY}"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "Installer Language"
-
-; TURI : couleurs du launcher (bandeau du haut et pages MUI).
-!define MUI_BGCOLOR 121316
-!define MUI_TEXTCOLOR F1F1F1
-ShowInstDetails nevershow
 
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
@@ -408,6 +406,33 @@ FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !insertmacro MUI_PAGE_DIRECTORY
 
+; TURI : raccourcis, cochés par défaut. Sautée en mode passif (mises à
+; jour) : les deux restent à 1, comme avant.
+Var TuriStartMenu
+Var TuriDesktop
+Var TuriStartMenuBox
+Var TuriDesktopBox
+Page custom TuriShortcutsPage TuriShortcutsLeave
+Function TuriShortcutsPage
+  ${If} $PassiveMode = 1
+    Abort
+  ${EndIf}
+  !insertmacro MUI_HEADER_TEXT "Raccourcis" "Où retrouver Turi Craft après l'installation."
+  nsDialogs::Create 1018
+  Pop $0
+  ${NSD_CreateCheckbox} 0 12u 100% 14u "Dans le menu Démarrer"
+  Pop $TuriStartMenuBox
+  ${IfThen} $TuriStartMenu = 1 ${|} ${NSD_Check} $TuriStartMenuBox ${|}
+  ${NSD_CreateCheckbox} 0 34u 100% 14u "Sur le bureau"
+  Pop $TuriDesktopBox
+  ${IfThen} $TuriDesktop = 1 ${|} ${NSD_Check} $TuriDesktopBox ${|}
+  nsDialogs::Show
+FunctionEnd
+Function TuriShortcutsLeave
+  ${NSD_GetState} $TuriStartMenuBox $TuriStartMenu
+  ${NSD_GetState} $TuriDesktopBox $TuriDesktop
+FunctionEnd
+
 ; 6. Start menu shortcut page
 Var AppStartMenuFolder
 !if "${STARTMENUFOLDER}" != ""
@@ -419,45 +444,14 @@ Var AppStartMenuFolder
 !insertmacro MUI_PAGE_STARTMENU Application $AppStartMenuFolder
 
 ; 7. Installation page
-; TURI : la seule page affichée, habillée aux couleurs du launcher.
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW TuriInstFilesShow
 !insertmacro MUI_PAGE_INSTFILES
-
-Function TuriInstFilesShow
-  SetCtlColors $HWNDPARENT F1F1F1 121316
-  FindWindow $0 "#32770" "" $HWNDPARENT ; page intérieure
-  SetCtlColors $0 F1F1F1 121316
-  GetDlgItem $1 $0 1006 ; texte d'avancement
-  SetCtlColors $1 A3A6AD 121316
-  ; Barre de progression : sans le thème de Windows (vert), jaune sur noir.
-  GetDlgItem $1 $0 1004
-  System::Call 'uxtheme::SetWindowTheme(p r1, w " ", w " ")'
-  SendMessage $1 0x0409 0 0x0018C5F5 ; PBM_SETBARCOLOR, #f5c518 (en BGR)
-  SendMessage $1 0x2001 0 0x00161312 ; PBM_SETBKCOLOR, #121316 (en BGR)
-  ; Précédent, Suivant, Annuler, mention du bas et son filet : rien à cliquer.
-  GetDlgItem $1 $HWNDPARENT 1
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 2
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 3
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 1028
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 1256
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 1035
-  ShowWindow $1 0
-FunctionEnd
 
 ; 8. Finish page
 ;
 ; Don't auto jump to finish page after installation page,
 ; because the installation page has useful info that can be used debug any issues with the installer.
 !define MUI_FINISHPAGE_NOAUTOCLOSE
-; Use show readme button in the finish page as a button create a desktop shortcut
-!define MUI_FINISHPAGE_SHOWREADME
-!define MUI_FINISHPAGE_SHOWREADME_TEXT "$(createDesktop)"
-!define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateOrUpdateDesktopShortcut
+; TURI : plus de case « raccourci sur le bureau » ici : page Raccourcis.
 ; Show run app after installation.
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
@@ -533,15 +527,14 @@ Function .onInit
     StrCpy $NoShortcutMode 1
   ${EndIf}
 
+  ; TURI : les deux raccourcis cochés par défaut.
+  StrCpy $TuriStartMenu 1
+  StrCpy $TuriDesktop 1
+
   ${GetOptions} $CMDLINE "/UPDATE" $UpdateMode
   ${IfNot} ${Errors}
     StrCpy $UpdateMode 1
   ${EndIf}
-
-  ; TURI : toujours en une étape, comme une mise à jour (mode « passif ») :
-  ; pas de choix à faire, raccourci sur le bureau, fermeture automatique.
-  ; Le dossier reste celui de l'utilisateur (installMode currentUser).
-  StrCpy $PassiveMode 1
 
   !if "${DISPLAYLANGUAGESELECTOR}" == "true"
     !insertmacro MUI_LANGDLL_DISPLAY
@@ -772,16 +765,23 @@ Section Install
   !endif
 
   ; Create start menu shortcut
-  !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
-    Call CreateOrUpdateStartMenuShortcut
-  !insertmacro MUI_STARTMENU_WRITE_END
+  ; TURI : seulement si la case est cochée (page Raccourcis).
+  ${If} $TuriStartMenu = 1
+    !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+      Call CreateOrUpdateStartMenuShortcut
+    !insertmacro MUI_STARTMENU_WRITE_END
+  ${EndIf}
 
-  ; Create desktop shortcut for silent and passive installers
-  ; because finish page will be skipped
-  ${If} $PassiveMode = 1
-  ${OrIf} ${Silent}
+  ; TURI : raccourci du bureau selon la page Raccourcis (coché par défaut,
+  ; donc créé aussi en mode passif ou silencieux, comme avant).
+  ${If} $TuriDesktop = 1
     Call CreateOrUpdateDesktopShortcut
   ${EndIf}
+
+  ; TURI : Windows garde les icônes en cache ; sans ce signal, un raccourci
+  ; recréé au même endroit montre encore l'ancien logo.
+  ; SHCNE_ASSOCCHANGED (0x08000000), SHCNF_FLUSH (0x1000).
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'
 
   !ifmacrodef NSIS_HOOK_POSTINSTALL
     !insertmacro NSIS_HOOK_POSTINSTALL
@@ -802,11 +802,6 @@ Function .onInstSuccess
     ${IfNot} ${Errors}
       ${GetOptions} $CMDLINE "/ARGS" $R0
       nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
-    ; TURI : installé d'un double-clic (ni mise à jour, ni silencieux) : le
-    ; launcher s'ouvre tout seul à la fin. Une mise à jour passe /R.
-    ${ElseIf} $UpdateMode <> 1
-    ${AndIfNot} ${Silent}
-      nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
     ${EndIf}
   ${EndIf}
 FunctionEnd

@@ -62,7 +62,8 @@
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installMode": "currentUser",
-        "template": "windows/installer.nsi"
+        "template": "windows/installer.nsi",
+        "uninstallerIcon": "icons/icon.ico"
       }
     }
   },

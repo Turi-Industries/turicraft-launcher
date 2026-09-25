@@ -28,3 +28,5 @@ __pycache__/
 
 # Logo Turi Craft (scripts/branding.sh) : pas dans le dépôt, pas sous GPL
 src/lib/assets/branding/
+src-tauri/branding/
+src-tauri/tauri.branding.conf.json

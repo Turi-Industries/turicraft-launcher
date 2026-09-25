@@ -69,6 +69,9 @@ jobs:
       - run: bun install --frozen-lockfile
       # Logo Turi Craft (hors dépôt, pas sous GPL) : variable TURI_LOGO_URL du
       # dépôt. Absente (fork) : l'icône provisoire reste.
+      # Pillow pour les images des installeurs (scripts/installer-images.py).
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
       - name: Logo
         shell: bash
         env:
@@ -90,7 +93,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tauriScript: bunx tauri
-          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }} ${{ matrix.args }}
+          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }} ${{ matrix.args }} ${{ env.TURI_BRANDING_ARGS }}
       - name: AppImage sans les libwayland d'Ubuntu (fenêtre grise sinon)
         if: runner.os == 'Linux'
         env:
@@ -103,7 +106,7 @@ jobs:
         run: |
           mkdir -p out
           find src-tauri/target -path '*/release/bundle/*' -type f \
-            \( -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.deb' \
+            \( -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.deb' -o -name '*.deb.sig' \
                -o -name '*-setup.exe' -o -name '*-setup.exe.sig' \
                -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) \
             -exec cp {} out/ \;

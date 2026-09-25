@@ -6,9 +6,11 @@
 # sans elle, un fork construit avec le « T » et rien ne casse.
 #
 # Usage : scripts/branding.sh [chemin-ou-url]    (défaut : $TURI_LOGO_URL)
-# Écrit src-tauri/icons/ (toutes les tailles) et src/lib/assets/branding/
-# (logo de la barre latérale, ignoré par git). En local, revenir au « T » :
-#   git checkout src-tauri/icons && rm -rf src/lib/assets/branding
+# Écrit src-tauri/icons/ (toutes les tailles), src/lib/assets/branding/
+# (logo de la barre latérale), src-tauri/branding/ (images des installeurs)
+# et src-tauri/tauri.branding.conf.json — ces trois-là ignorés par git.
+# En local, revenir au « T » :
+#   git checkout src-tauri/icons && rm -rf src/lib/assets/branding src-tauri/branding src-tauri/tauri.branding.conf.json
 set -euo pipefail
 
 SRC="${1:-${TURI_LOGO_URL:-}}"
@@ -44,4 +46,37 @@ cp "$TMP"/icons/* src-tauri/icons/
 
 mkdir -p src/lib/assets/branding
 cp "$TMP/icons/128x128@2x.png" src/lib/assets/branding/logo.png
+
+# Images des installeurs (Windows : accueil, en-tête ; macOS : fenêtre du
+# .dmg), et la config qui les déclare — à passer à `tauri build --config`.
+# Pillow : python du système, sinon celui de actions/setup-python (CI).
+PY="$(command -v python || command -v python3)"
+"$PY" -m pip install --quiet pillow 2>/dev/null \
+	|| "$PY" -m pip install --quiet --user --break-system-packages pillow
+"$PY" scripts/installer-images.py "$TMP/logo.png"
+cat > src-tauri/tauri.branding.conf.json <<'JSON'
+{
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "sidebarImage": "branding/sidebar.bmp",
+        "headerImage": "branding/header.bmp",
+        "uninstallerHeaderImage": "branding/header.bmp"
+      }
+    },
+    "macOS": {
+      "dmg": {
+        "background": "branding/dmg.png",
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 180, "y": 200 },
+        "applicationFolderPosition": { "x": 480, "y": 200 }
+      }
+    }
+  }
+}
+JSON
+# En CI : la construction la prend en plus de tauri.conf.json.
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+	echo "TURI_BRANDING_ARGS=--config src-tauri/tauri.branding.conf.json" >> "$GITHUB_ENV"
+fi
 echo "branding : logo posé depuis $SRC"
