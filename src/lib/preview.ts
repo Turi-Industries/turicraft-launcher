@@ -34,7 +34,7 @@ const presetsFile = {
 		objets_physiques: { category: 'mods', label: 'Objets au sol réalistes', description: 'Les objets tombent à plat au lieu de flotter en tournant.', default: true, groups: ['objets_physiques'] },
 		premiere_personne: { category: 'mods', label: 'Corps en première personne', description: 'Voir ses jambes et son corps en regardant vers le bas.', default: false, groups: ['premiere_personne'] },
 		synchro_verticale: { category: 'graphismes', label: 'Synchronisation verticale', description: 'Évite les déchirures de l’image. La couper peut donner plus d’images par seconde.', default: true, groups: [] },
-		plein_ecran: { category: 'graphismes', label: 'Plein écran', description: 'Le jeu occupe tout l’écran (F11 en jeu pour basculer).', default: false, groups: [] },
+		plein_ecran: { category: 'graphismes', label: 'Plein écran', description: 'Le jeu charge dans une fenêtre, puis passe en plein écran (F11 en jeu pour basculer).', default: true, groups: [] },
 		infobulle: { category: 'interface', label: 'Infobulle de ce que tu regardes', description: 'Jade : nom du bloc ou de la créature visée, en haut de l’écran.', default: true, groups: [] },
 		titres_biomes: { category: 'interface', label: 'Titres des biomes', description: 'Le nom du biome s’affiche quand tu y entres.', default: true, groups: [] },
 		balancement: { category: 'graphismes', label: 'Balancement de la vue', description: 'La caméra bouge en marchant. À couper si ça donne mal au cœur.', default: true, groups: [] }
@@ -178,7 +178,7 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 				resolved: {
 					preset: 'haut',
 					groups: ['animations', 'joueur', 'lumieres', 'particules', 'textures_connectees', 'aeronautics_visuel', 'sons_legers', ...(p.get('perso') === '1' ? [] : ['sons_ambiance'])],
-					toggles: { shaders: true, vue_lointaine: p.get('perso') !== '1', son_3d: true, objets_physiques: true, premiere_personne: true, synchro_verticale: false, plein_ecran: false, infobulle: true, titres_biomes: true, balancement: true },
+					toggles: { shaders: true, vue_lointaine: p.get('perso') !== '1', son_3d: true, objets_physiques: true, premiere_personne: true, synchro_verticale: false, plein_ecran: true, infobulle: true, titres_biomes: true, balancement: true },
 					sliders: { distance: 16, distance_lointaine: 192, interface: 3, images: 141 },
 					adapted: p.get('perso') === '1' ? { distance_lointaine: 'grosse carte graphique' } : { distance: 'grosse carte graphique', distance_lointaine: 'grosse carte graphique', images: 'écran FreeSync / G-Sync actif', interface: 'définition de ton écran principal', synchro_verticale: 'écran FreeSync / G-Sync actif' },
 					memory_gb: 10,

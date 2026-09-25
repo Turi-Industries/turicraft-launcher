@@ -32,6 +32,10 @@ pub struct Prepared {
     /// Versions des réglages « une fois » posées (`Settings::once_applied`,
     /// `Settings::once_files_applied`).
     pub once_applied: (u32, u32),
+    /// Taille de la fenêtre du jeu pendant le chargement (`--width`,
+    /// `--height`), en coordonnées d'écran du jeu. Posée par l'appelant, qui
+    /// connaît l'écran (`game_window_size`) ; `None` : taille de Minecraft.
+    pub window_size: Option<(u32, u32)>,
 }
 
 pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Result<Prepared> {
@@ -71,8 +75,8 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
     }
     let once_applied = presets::apply_once(paths, &file, (settings.once_applied, settings.once_files_applied), r)?;
     early_window_off(&paths.instance())?;
-    windowed_until_loaded(&paths.instance())?;
-    Ok(Prepared { java, profile, resolved, applied, once_applied })
+    windowed_until_loaded(&paths.instance(), wants_fullscreen(&file, &resolved))?;
+    Ok(Prepared { java, profile, resolved, applied, once_applied, window_size: None })
 }
 
 /// Empreinte des réglages à écrire : fichier de préréglages, choix résolus,
@@ -144,15 +148,24 @@ fn prefer_dedicated_gpu(java: &Path, r: &dyn Reporter) {
     }
 }
 
-/// Le jeu démarre TOUJOURS en fenêtré ; le plein écran vient après le
-/// chargement (kubejs/client_scripts/40_plein_ecran.js). Le choix du joueur
-/// est lu dans options.txt — ce que le préréglage vient d'y écrire, ou ce
-/// que le joueur a réglé en jeu (F11) à la partie précédente — puis passé au
-/// script par config/turicraft/launch.json.
-fn windowed_until_loaded(game: &Path) -> Result<()> {
+/// Plein écran après le chargement : l'option du launcher qui règle
+/// `fullscreen` (« Plein écran » dans presets.toml). Elle suit aussi la façon
+/// dont le joueur a quitté le jeu : `import_game_changes` la relit dans
+/// config/turicraft/window.json (presets::game_values). `None` : le pack n'a
+/// pas cette option, options.txt décide.
+fn wants_fullscreen(file: &presets::PresetsFile, resolved: &Resolved) -> Option<bool> {
+    let (id, _) = file.toggles.iter().find(|(_, t)| t.options.contains_key("fullscreen"))?;
+    resolved.toggles.get(id).copied()
+}
+
+/// Le jeu démarre TOUJOURS en fenêtré (d'un tiers de l'écran, ou à la taille
+/// laissée par le joueur : `game_window_size`) ; le plein écran vient après le
+/// chargement (kubejs/client_scripts/40_plein_ecran.js), passé au script par
+/// config/turicraft/launch.json.
+fn windowed_until_loaded(game: &Path, wants: Option<bool>) -> Result<()> {
     let options = game.join("options.txt");
     let text = std::fs::read_to_string(&options).unwrap_or_default();
-    let wants_fullscreen = text.lines().any(|l| l.trim() == "fullscreen:true");
+    let wants_fullscreen = wants.unwrap_or_else(|| text.lines().any(|l| l.trim() == "fullscreen:true"));
     let mut lines: Vec<String> = text.lines().filter(|l| !l.starts_with("fullscreen:")).map(String::from).collect();
     lines.push("fullscreen:false".into());
     std::fs::write(&options, lines.join("\n") + "\n")?;
@@ -160,6 +173,28 @@ fn windowed_until_loaded(game: &Path) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("launch.json"), serde_json::json!({ "fullscreen": wants_fullscreen }).to_string())?;
     Ok(())
+}
+
+/// Taille de la fenêtre du jeu pendant le chargement, en coordonnées d'écran
+/// du jeu (`screen` : l'écran principal, dans ces mêmes coordonnées). La
+/// taille laissée par le joueur à la dernière partie, en fenêtré
+/// (config/turicraft/window.json, écrit par le script KubeJS), si elle tient
+/// dans l'écran ; sinon un tiers de sa surface en 16:9, comme le launcher.
+pub fn game_window_size(game: &Path, screen: (u32, u32)) -> (u32, u32) {
+    let (sw, sh) = screen;
+    let saved = std::fs::read_to_string(game.join("config/turicraft/window.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        // KubeJS écrit ses nombres en décimal (1600.0) : lus en f64.
+        .and_then(|v| Some((v.get("width")?.as_f64()?.round() as u32, v.get("height")?.as_f64()?.round() as u32)));
+    if let Some((w, h)) = saved.filter(|&(w, h)| (640..=sw).contains(&w) && (360..=sh).contains(&h)) {
+        return (w, h);
+    }
+    let (sw, sh) = (sw as f64, sh as f64);
+    let h = (sw * sh / 3.0 * 9.0 / 16.0).sqrt();
+    let w = h * 16.0 / 9.0;
+    // Jamais sous la taille de Minecraft (854 × 480), jamais plus que l'écran.
+    (w.max(854.0).min(sw).round() as u32, h.max(480.0).min(sh).round() as u32)
 }
 
 /// Plus de fenêtre de chargement NeoForge : le launcher montre la progression
@@ -208,6 +243,9 @@ pub fn command_line(
         extra_jvm: prepared.resolved.jvm_flags.clone(),
     };
     let (jvm, mut game_args) = minecraft::command_line(paths, &prepared.profile, &vars)?;
+    if let Some((w, h)) = prepared.window_size {
+        game_args.extend(["--width".into(), w.to_string(), "--height".into(), h.to_string()]);
+    }
     if settings.join_server {
         game_args.push("--quickPlayMultiplayer".into());
         game_args.push(format!("{}:{}", config::SERVER_HOST, config::SERVER_PORT));
@@ -340,6 +378,34 @@ mod tests_reglages_en_jeu {
         assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn plein_ecran_comme_laisse_en_jeu() {
+        let file = presets::parse(include_str!("../fixtures/presets.toml")).unwrap();
+        let hw = crate::hardware::Hardware { ram_gb: 32.0, cpu_threads: 20, gpu_dedicated: true, vram_gb: 16.0, ..Default::default() };
+        let dir = std::env::temp_dir().join(format!("turicraft-pleinecran-{}", std::process::id()));
+        let paths = Paths::new(dir.clone());
+        let mut s = Settings { preset: "haut".into(), ..Default::default() };
+        let r = presets::resolve(&file, &hw, &s);
+        assert_eq!(r.toggles.get("plein_ecran"), Some(&true), "plein écran par défaut");
+        presets::apply(&paths, &file, &r, &crate::progress::ConsoleReporter).unwrap();
+        s.applied = Some(applied_hash(&paths, &file, &r));
+        // Le lancement force fullscreen:false dans options.txt : ce n'est PAS
+        // un choix du joueur, rien à reprendre.
+        windowed_until_loaded(&paths.instance(), wants_fullscreen(&file, &r)).unwrap();
+        assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
+        // Le joueur quitte en fenêtré (F11) : la partie suivante le reste.
+        let w = paths.instance().join("config/turicraft/window.json");
+        std::fs::write(&w, r#"{"fullscreen":false,"width":1600,"height":900}"#).unwrap();
+        assert_eq!(import_game_changes(&paths, &file, &hw, &mut s), vec!["plein_ecran".to_string()]);
+        let r = presets::resolve(&file, &hw, &s);
+        assert_eq!(wants_fullscreen(&file, &r), Some(false));
+        // Puis quitte en plein écran : de nouveau plein écran.
+        std::fs::write(&w, r#"{"fullscreen":true,"width":1600,"height":900}"#).unwrap();
+        assert_eq!(import_game_changes(&paths, &file, &hw, &mut s), vec!["plein_ecran".to_string()]);
+        assert_eq!(wants_fullscreen(&file, &presets::resolve(&file, &hw, &s)), Some(true));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
 
 #[cfg(test)]
@@ -349,12 +415,36 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("turicraft-fen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("options.txt"), "guiScale:3\nfullscreen:true\nlang:fr_fr\n").unwrap();
-        super::windowed_until_loaded(&dir).unwrap();
+        super::windowed_until_loaded(&dir, None).unwrap();
         let opts = std::fs::read_to_string(dir.join("options.txt")).unwrap();
         assert!(opts.contains("fullscreen:false") && !opts.contains("fullscreen:true"));
         assert!(opts.contains("guiScale:3") && opts.contains("lang:fr_fr"));
         let launch = std::fs::read_to_string(dir.join("config/turicraft/launch.json")).unwrap();
         assert_eq!(launch, r#"{"fullscreen":true}"#);
+        // L'option du launcher l'emporte sur options.txt (forcé à false au
+        // lancement précédent) : elle suit la façon dont le joueur a quitté.
+        super::windowed_until_loaded(&dir, Some(true)).unwrap();
+        let launch = std::fs::read_to_string(dir.join("config/turicraft/launch.json")).unwrap();
+        assert_eq!(launch, r#"{"fullscreen":true}"#);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn fenetre_de_chargement() {
+        let dir = std::env::temp_dir().join(format!("turicraft-taille-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("config/turicraft")).unwrap();
+        // Rien d'enregistré : un tiers de l'écran, en 16:9.
+        assert_eq!(super::game_window_size(&dir, (2560, 1440)), (1478, 831));
+        assert_eq!(super::game_window_size(&dir, (1920, 1080)), (1109, 624));
+        // Petit écran : jamais sous la taille de Minecraft.
+        assert_eq!(super::game_window_size(&dir, (1366, 768)), (854, 480));
+        // La taille laissée par le joueur, si elle tient dans l'écran.
+        std::fs::write(dir.join("config/turicraft/window.json"), r#"{"fullscreen":false,"width":1600,"height":900}"#).unwrap();
+        assert_eq!(super::game_window_size(&dir, (2560, 1440)), (1600, 900));
+        std::fs::write(dir.join("config/turicraft/window.json"), r#"{"fullscreen":true,"width":1600.0,"height":900.0}"#).unwrap();
+        assert_eq!(super::game_window_size(&dir, (2560, 1440)), (1600, 900), "nombres écrits par KubeJS");
+        // Plus grande que l'écran (écran changé depuis) : un tiers à nouveau.
+        assert_eq!(super::game_window_size(&dir, (1366, 768)), (854, 480));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

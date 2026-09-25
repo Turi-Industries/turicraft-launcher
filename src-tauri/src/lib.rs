@@ -532,9 +532,10 @@ fn play(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     }
     let st = state.inner().clone();
     let behavior = st.settings.lock().unwrap().launcher_behavior.clone();
+    let screen = game_screen(&app);
     *task = Some(tauri::async_runtime::spawn(async move {
         let reporter = TauriReporter { app: app.clone(), behavior };
-        if let Err(e) = play_inner(&st, &reporter).await {
+        if let Err(e) = play_inner(&st, &reporter, screen).await {
             reporter.taskbar(ProgressBarStatus::Error, None);
             let _ = app.emit("launcher-error", format!("{e:#}"));
         }
@@ -556,7 +557,17 @@ fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
     let _ = app.emit("launcher-stopped", ());
 }
 
-async fn play_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
+/// L'écran principal (celui où Minecraft ouvre sa fenêtre), dans les
+/// coordonnées d'écran du jeu : des pixels sous Windows et Linux (GLFW y
+/// compte en pixels réels), des points sous macOS.
+fn game_screen(app: &AppHandle) -> Option<(u32, u32)> {
+    let m = app.primary_monitor().ok().flatten()?;
+    let (w, h) = (m.size().width as f64, m.size().height as f64);
+    let scale = if cfg!(target_os = "macos") { m.scale_factor() } else { 1.0 };
+    Some(((w / scale).round() as u32, (h / scale).round() as u32))
+}
+
+async fn play_inner(state: &AppState, r: &dyn Reporter, screen: Option<(u32, u32)>) -> anyhow::Result<()> {
     check_network(&state.paths).await?;
     import_before_launch(state, r).await;
     let settings = state.settings.lock().unwrap().clone();
@@ -575,13 +586,16 @@ async fn play_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
             }
         }
     }
-    let prepared = launch::prepare(&state.paths, &settings, r).await?;
+    let mut prepared = launch::prepare(&state.paths, &settings, r).await?;
     {
         let mut s = state.settings.lock().unwrap();
         s.applied = Some(prepared.applied.clone());
         (s.once_applied, s.once_files_applied) = prepared.once_applied;
         s.save(&state.paths)?;
     }
+    // Fenêtre de chargement : un tiers de l'écran, ou la taille laissée par
+    // le joueur (launch::game_window_size).
+    prepared.window_size = screen.map(|sc| launch::game_window_size(&state.paths.instance(), sc));
     let outcome = launch::launch(&state.paths, &settings, &session, &prepared, r).await?;
     if !outcome.milestones_ms.is_empty() {
         let mut s = state.settings.lock().unwrap();

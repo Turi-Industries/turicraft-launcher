@@ -223,8 +223,8 @@ options = { enableVsync = "false" }
 [toggles.plein_ecran]
 category = "graphismes"
 label = "Plein écran"
-description = "Le jeu démarre en fenêtre et passe en plein écran une fois chargé. F11 en jeu pour basculer, retenu à la partie suivante."
-default = false
+description = "Le jeu charge dans une fenêtre, puis passe en plein écran. F11 en jeu pour basculer : la partie suivante reprend la fenêtre comme tu l'as laissée."
+default = true
 options = { fullscreen = "true" }
 [toggles.plein_ecran.off]
 options = { fullscreen = "false" }

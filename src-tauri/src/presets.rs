@@ -702,8 +702,10 @@ fn value_text(v: &toml::Value) -> String {
 
 /// Ce que le jeu a ACTUELLEMENT dans ses fichiers, pour les curseurs et les
 /// options du jeu que le launcher sait relire. Les options qui ajoutent des
-/// mods (groupes) et le plein écran (le launcher démarre toujours en
-/// fenêtré, launch.rs) ne se relisent pas.
+/// mods (groupes) ne se relisent pas. Le plein écran ne se lit pas dans
+/// options.txt (le launcher y force `false` à chaque lancement, launch.rs)
+/// mais dans config/turicraft/window.json : l'état de la fenêtre quand le
+/// joueur a quitté, écrit par le script KubeJS du pack.
 pub fn game_values(game: &Path, file: &PresetsFile) -> (BTreeMap<String, i64>, BTreeMap<String, bool>) {
     let mut sliders = BTreeMap::new();
     for (id, sl) in &file.sliders {
@@ -725,8 +727,18 @@ pub fn game_values(game: &Path, file: &PresetsFile) -> (BTreeMap<String, i64>, B
                 e.set.iter().all(|(k, v)| read_setting(game, Some(rel), &e.format, k).as_deref() == Some(value_text(v).as_str()))
             })
     };
+    let left_fullscreen = std::fs::read_to_string(game.join("config/turicraft/window.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("fullscreen")?.as_bool());
     let mut toggles = BTreeMap::new();
     for (id, t) in &file.toggles {
+        if t.options.get("fullscreen").map(|v| v.trim_matches('"')) == Some("true") && t.groups.is_empty() {
+            if let Some(v) = left_fullscreen {
+                toggles.insert(id.clone(), v);
+            }
+            continue;
+        }
         if !t.groups.is_empty() || t.options.contains_key("fullscreen") {
             continue;
         }
