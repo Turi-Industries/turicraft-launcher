@@ -179,7 +179,7 @@ impl Library {
             }
             return Ok(Some(Download {
                 url: a.url.clone(),
-                path: libraries.join(self.path()?),
+                path: crate::paths::safe_join(libraries, self.path()?)?,
                 hash: Hash::Sha1(a.sha1.clone()),
                 size: Some(a.size),
                 executable: false,
@@ -189,7 +189,7 @@ impl Library {
             let rel = maven_path(&self.name)?;
             return Ok(Some(Download {
                 url: format!("{}/{rel}", base.trim_end_matches('/')),
-                path: libraries.join(rel),
+                path: crate::paths::safe_join(libraries, rel)?,
                 hash: Hash::None,
                 size: None,
                 executable: false,
@@ -335,7 +335,7 @@ pub async fn ensure_vanilla(paths: &Paths, version: &str, reporter: &dyn Reporte
     if let Some(l) = v.logging.as_ref().and_then(|l| l.client.as_ref()) {
         list.push(Download {
             url: l.file.url.clone(),
-            path: paths.assets().join("log_configs").join(&l.file.id),
+            path: crate::paths::safe_join(&paths.assets().join("log_configs"), &l.file.id)?,
             hash: Hash::Sha1(l.file.sha1.clone()),
             size: Some(l.file.size),
             executable: false,

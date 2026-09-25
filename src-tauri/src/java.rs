@@ -107,7 +107,7 @@ pub async fn ensure_java(paths: &Paths, component: &str, reporter: &dyn Reporter
     let mut downloads = Vec::new();
     let mut links = Vec::new();
     for (rel, f) in &manifest.files {
-        let path = root.join(rel);
+        let path = crate::paths::safe_join(&root, rel)?;
         match f.kind.as_str() {
             "directory" => std::fs::create_dir_all(&path)?,
             "file" => {

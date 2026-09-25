@@ -132,7 +132,7 @@
 		{#if L.news.length}
 			<section class="news">
 				<div class="section-title">Nouveautés</div>
-				{#each L.news as n (n.title)}
+				{#each L.news as n, i (i)}
 					<article>
 						<div class="date">{date(n.date)}</div>
 						<h3>{n.title}</h3>

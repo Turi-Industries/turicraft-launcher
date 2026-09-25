@@ -175,7 +175,13 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 					gc: 'ZGC'
 				},
 				memory_cap_gb: 30,
-				memory_auto_gb: 10
+				memory_auto_gb: 10,
+				settings: settings(),
+				preset_owned: {
+					toggles: ['shaders', 'vue_lointaine', 'son_3d', 'objets_physiques', 'premiere_personne', 'synchro_verticale'],
+					sliders: ['distance', 'distance_lointaine'],
+					mods: ['animations', 'joueur', 'lumieres', 'particules', 'textures_connectees', 'interface_animee', 'aeronautics_visuel', 'sons_legers', 'sons_ambiance']
+				}
 			};
 		case 'server_status':
 			return p.get('serveur') === '0'

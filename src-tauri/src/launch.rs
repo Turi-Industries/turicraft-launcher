@@ -62,12 +62,7 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
     // réglé EN JEU (distance, plein écran…) serait écrasé à chaque lancement.
     // Ou si une mise à jour du pack a remplacé un fichier qu'ils touchent
     // (DistantHorizons.toml…) : le fichier neuf n'a plus les réglages.
-    let applied = {
-        use sha2::{Digest, Sha256};
-        let pack_files = packwiz::pack_hashes(paths, &file.managed_files());
-        let both = serde_json::json!({ "file": &file, "resolved": &resolved, "pack_files": pack_files });
-        hex::encode(Sha256::digest(both.to_string().as_bytes()))
-    };
+    let applied = applied_hash(paths, &file, &resolved);
     let first_run = !paths.instance().join("options.txt").exists();
     if first_run || settings.applied.as_deref() != Some(applied.as_str()) {
         presets::apply(paths, &file, &resolved, r)?;
@@ -78,6 +73,50 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
     early_window_off(&paths.instance())?;
     windowed_until_loaded(&paths.instance())?;
     Ok(Prepared { java, profile, resolved, applied, once_applied })
+}
+
+/// Empreinte des réglages à écrire : fichier de préréglages, choix résolus,
+/// et versions des fichiers de config du pack qu'ils touchent.
+pub fn applied_hash(paths: &Paths, file: &presets::PresetsFile, resolved: &presets::Resolved) -> String {
+    use sha2::{Digest, Sha256};
+    let pack_files = packwiz::pack_hashes(paths, &file.managed_files());
+    let both = serde_json::json!({ "file": file, "resolved": resolved, "pack_files": pack_files });
+    hex::encode(Sha256::digest(both.to_string().as_bytes()))
+}
+
+/// Réglages changés EN JEU (distance, images/s, synchro, shaders…) : repris
+/// comme choix du joueur, pour que le launcher affiche ce que le jeu a et ne
+/// l'écrase pas au lancement suivant. Seulement si RIEN n'a changé côté
+/// launcher depuis le dernier lancement (sinon, le launcher a le dernier
+/// mot, comme avant). Rend les réglages repris.
+pub fn import_game_changes(paths: &Paths, file: &presets::PresetsFile, hw: &crate::hardware::Hardware, s: &mut Settings) -> Vec<String> {
+    let Some(stored) = s.applied.clone() else { return Vec::new() };
+    let resolved = presets::resolve(file, hw, s);
+    if applied_hash(paths, file, &resolved) != stored {
+        return Vec::new();
+    }
+    let (sliders, toggles) = presets::game_values(&paths.instance(), file);
+    let mut changed = Vec::new();
+    for (id, v) in toggles {
+        if resolved.toggles.get(&id) != Some(&v) {
+            s.toggles.insert(id.clone(), v);
+            changed.push(id);
+        }
+    }
+    for (id, v) in sliders {
+        // Curseur grisé (vue lointaine coupée) : sa valeur ne compte pas.
+        let active = file.sliders[&id].requires.as_ref().map_or(true, |t| s.toggles.get(t).copied().or(resolved.toggles.get(t).copied()).unwrap_or(false));
+        if active && resolved.sliders.get(&id) != Some(&v) {
+            s.sliders.insert(id.clone(), v);
+            changed.push(id);
+        }
+    }
+    if !changed.is_empty() {
+        // Le jeu a déjà ces valeurs : rien à réécrire au prochain lancement.
+        let now = presets::resolve(file, hw, s);
+        s.applied = Some(applied_hash(paths, file, &now));
+    }
+    changed
 }
 
 /// Le jeu démarre TOUJOURS en fenêtré ; le plein écran vient après le
@@ -217,6 +256,46 @@ pub async fn launch(
     let crash = if status.success() { None } else { crate::diag::analyze(&game, started_at) };
     r.send(Event::GameExited { code, crash });
     Ok(Outcome { code, milestones_ms: if reached.len() == MILESTONES.len() { reached } else { Vec::new() } })
+}
+
+#[cfg(test)]
+mod tests_reglages_en_jeu {
+    use super::*;
+
+    /// Distance et synchro changées EN JEU : reprises par le launcher, qui ne
+    /// réécrit plus rien ; mais si le joueur change un réglage dans le
+    /// launcher entre-temps, c'est le launcher qui gagne.
+    #[test]
+    fn reglages_changes_en_jeu_repris() {
+        let file = presets::parse(include_str!("../fixtures/presets.toml")).unwrap();
+        let hw = crate::hardware::Hardware { ram_gb: 32.0, cpu_threads: 20, gpu_dedicated: true, vram_gb: 16.0, ..Default::default() };
+        let dir = std::env::temp_dir().join(format!("turicraft-enjeu-{}", std::process::id()));
+        let paths = Paths::new(dir.clone());
+        let mut s = Settings { preset: "haut".into(), ..Default::default() };
+        let r = presets::resolve(&file, &hw, &s);
+        presets::apply(&paths, &file, &r, &crate::progress::ConsoleReporter).unwrap();
+        s.applied = Some(applied_hash(&paths, &file, &r));
+        assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty(), "rien changé en jeu");
+
+        // En jeu : distance 12, synchro verticale coupée.
+        let opts = paths.instance().join("options.txt");
+        let text = std::fs::read_to_string(&opts).unwrap().replace("renderDistance:16", "renderDistance:12").replace("enableVsync:true", "enableVsync:false");
+        std::fs::write(&opts, text).unwrap();
+        let mut changed = import_game_changes(&paths, &file, &hw, &mut s);
+        changed.sort();
+        assert_eq!(changed, vec!["distance".to_string(), "synchro_verticale".to_string()]);
+        assert_eq!((s.sliders["distance"], s.toggles["synchro_verticale"]), (12, false));
+        // Le jeu a déjà ces valeurs : au lancement, rien à réécrire.
+        assert_eq!(s.applied.as_deref(), Some(applied_hash(&paths, &file, &presets::resolve(&file, &hw, &s)).as_str()));
+
+        // Le joueur choisit Moyen dans le launcher, puis rechange en jeu : le
+        // launcher a le dernier mot (il réécrira au lancement).
+        s.preset = "moyen".into();
+        let text = std::fs::read_to_string(&opts).unwrap().replace("renderDistance:12", "renderDistance:20");
+        std::fs::write(&opts, text).unwrap();
+        assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
 
 #[cfg(test)]

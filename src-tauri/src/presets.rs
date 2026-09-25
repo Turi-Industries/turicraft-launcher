@@ -278,6 +278,13 @@ pub struct ToggleOff {
     pub options: BTreeMap<String, String>,
 }
 
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct PresetOwned {
+    pub toggles: BTreeSet<String>,
+    pub sliders: BTreeSet<String>,
+    pub mods: BTreeSet<String>,
+}
+
 /// Ce que le joueur a choisi, résolu : un préréglage de base, les groupes de
 /// mods optionnels, les interrupteurs, la mémoire.
 #[derive(Serialize, Clone, Debug)]
@@ -396,6 +403,21 @@ impl PresetsFile {
         out
     }
 
+    /// Ce que les préréglages décident : interrupteurs et curseurs qu'au moins
+    /// un préréglage fixe, groupes de mods qu'il active. Choisir un préréglage
+    /// efface les choix du joueur sur ceux-là (sinon une distance touchée une
+    /// fois restait imposée en passant de Haut à Moyen — 25/09) ; les
+    /// préférences (balancement, taille de l'interface…) restent.
+    pub fn preset_owned(&self) -> PresetOwned {
+        let mut owned = PresetOwned::default();
+        for p in self.presets.values() {
+            owned.toggles.extend(p.toggles.keys().cloned());
+            owned.mods.extend(p.groups.iter().cloned());
+            owned.sliders.extend(self.sliders.iter().filter(|(_, sl)| sl.preset_value(p).is_some()).map(|(id, _)| id.clone()));
+        }
+        owned
+    }
+
     pub fn all_optional(&self) -> HashSet<String> {
         self.optional_groups.values().flatten().cloned().collect()
     }
@@ -419,7 +441,7 @@ pub fn apply_once(paths: &Paths, file: &PresetsFile, done: (u32, u32), reporter:
     let Some(once) = &file.once else { return Ok(done) };
     if once.files_version > done.1 {
         for (rel, edit) in &once.files {
-            edit_file(&paths.instance().join(rel), edit).with_context(|| format!("réglage de première fois : {rel}"))?;
+            edit_file(&crate::paths::safe_join(&paths.instance(), rel)?, edit).with_context(|| format!("réglage de première fois : {rel}"))?;
         }
     }
     let files_done = done.1.max(once.files_version);
@@ -469,24 +491,24 @@ pub fn apply(paths: &Paths, file: &PresetsFile, r: &Resolved, reporter: &dyn Rep
     set_options(&game.join("options.txt"), &options, &file.managed_packs(), &wanted)?;
 
     for (rel, edit) in &preset.files {
-        edit_file(&game.join(rel), edit).with_context(|| format!("préréglage {} : {rel}", r.preset))?;
+        edit_file(&crate::paths::safe_join(&game, rel)?, edit).with_context(|| format!("préréglage {} : {rel}", r.preset))?;
     }
     for (id, t) in &file.toggles {
         let on = r.toggles.get(id).copied().unwrap_or(t.default);
         let files = if on { Some(&t.files) } else { t.off.as_ref().map(|o| &o.files) };
         for (rel, edit) in files.into_iter().flatten() {
-            edit_file(&game.join(rel), edit).with_context(|| format!("option {id} : {rel}"))?;
+            edit_file(&crate::paths::safe_join(&game, rel)?, edit).with_context(|| format!("option {id} : {rel}"))?;
         }
     }
     for (rel, edit) in &r.adapt_files {
-        edit_file(&game.join(rel), edit).with_context(|| format!("ajustement automatique : {rel}"))?;
+        edit_file(&crate::paths::safe_join(&game, rel)?, edit).with_context(|| format!("ajustement automatique : {rel}"))?;
     }
     for (id, sl) in &file.sliders {
         if let (Some(rel), Some(key), Some(v), true) = (&sl.file, &sl.key, r.sliders.get(id), active(sl)) {
             let mut set = toml::Table::new();
             set.insert(key.clone(), toml::Value::Integer(*v));
             let edit = FileEdit { format: sl.format.clone().unwrap_or_else(|| "toml".into()), set, if_exists: false };
-            edit_file(&game.join(rel), &edit).with_context(|| format!("réglage {id} : {rel}"))?;
+            edit_file(&crate::paths::safe_join(&game, rel)?, &edit).with_context(|| format!("réglage {id} : {rel}"))?;
         }
     }
     reporter.log(&format!("préréglage appliqué : {}", preset.label));
@@ -629,6 +651,94 @@ fn edit_properties(text: &str, set: &toml::Table) -> String {
         }
     }
     lines.join("\n") + "\n"
+}
+
+// ─── Réglages changés en jeu ────────────────────────────────────────────────
+
+/// Valeur actuelle d'une clé dans un fichier du jeu, en texte (`12`, `true`,
+/// `FAST`). `options.txt` quand `file` vaut None.
+fn read_setting(game: &Path, file: Option<&str>, format: &str, key: &str) -> Option<String> {
+    let path = match file {
+        Some(rel) => crate::paths::safe_join(game, rel).ok()?,
+        None => game.join("options.txt"),
+    };
+    let text = std::fs::read_to_string(path).ok()?;
+    let plain = |v: &str| v.trim().trim_matches('"').to_string();
+    match (file, format) {
+        (None, _) => text.lines().find_map(|l| l.strip_prefix(&format!("{key}:"))).map(plain),
+        (_, "properties") => text.lines().find_map(|l| {
+            let (k, v) = l.split_once(['=', ':'])?;
+            (!l.trim_start().starts_with('#') && k.trim() == key).then(|| plain(v))
+        }),
+        (_, "toml") => {
+            let doc: toml::Table = text.parse().ok()?;
+            let mut cur = &toml::Value::Table(doc);
+            for part in key.split('.') {
+                cur = cur.as_table()?.get(part)?;
+            }
+            Some(match cur {
+                toml::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            })
+        }
+        (_, "json") => {
+            let root: serde_json::Value = serde_json::from_str(&text).ok()?;
+            let v = root.get(key).or_else(|| key.split('.').try_fold(&root, |c, p| c.get(p)))?;
+            Some(match v {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn value_text(v: &toml::Value) -> String {
+    match v {
+        toml::Value::String(s) => s.trim_matches('"').to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Ce que le jeu a ACTUELLEMENT dans ses fichiers, pour les curseurs et les
+/// options du jeu que le launcher sait relire. Les options qui ajoutent des
+/// mods (groupes) et le plein écran (le launcher démarre toujours en
+/// fenêtré, launch.rs) ne se relisent pas.
+pub fn game_values(game: &Path, file: &PresetsFile) -> (BTreeMap<String, i64>, BTreeMap<String, bool>) {
+    let mut sliders = BTreeMap::new();
+    for (id, sl) in &file.sliders {
+        let v = match (&sl.option, &sl.file, &sl.key) {
+            (Some(o), _, _) => read_setting(game, None, "", o),
+            (None, Some(f), Some(k)) => read_setting(game, Some(f), sl.format.as_deref().unwrap_or("toml"), k),
+            _ => None,
+        };
+        if let Some(v) = v.and_then(|v| v.parse::<i64>().ok()).filter(|v| (sl.min..=sl.max).contains(v)) {
+            sliders.insert(id.clone(), v);
+        }
+    }
+    // Toutes les valeurs d'un côté (activée) ou de l'autre (coupée) : sinon
+    // (réglage mixte, autre pack de shaders…), on ne décide pas.
+    let matches = |options: &BTreeMap<String, String>, files: &BTreeMap<String, FileEdit>| -> bool {
+        (!options.is_empty() || !files.is_empty())
+            && options.iter().all(|(k, v)| read_setting(game, None, "", k).as_deref() == Some(v.trim_matches('"')))
+            && files.iter().all(|(rel, e)| {
+                e.set.iter().all(|(k, v)| read_setting(game, Some(rel), &e.format, k).as_deref() == Some(value_text(v).as_str()))
+            })
+    };
+    let mut toggles = BTreeMap::new();
+    for (id, t) in &file.toggles {
+        if !t.groups.is_empty() || t.options.contains_key("fullscreen") {
+            continue;
+        }
+        if matches(&t.options, &t.files) {
+            toggles.insert(id.clone(), true);
+        } else if let Some(off) = &t.off {
+            if matches(&off.options, &off.files) {
+                toggles.insert(id.clone(), false);
+            }
+        }
+    }
+    (sliders, toggles)
 }
 
 /// Résout le choix du joueur (réglages) en préréglage concret.
@@ -878,6 +988,48 @@ mod tests {
         assert_eq!(r.sliders["distance"], 8);
         assert!(!r.toggles["shaders"] && !r.toggles["vue_lointaine"] && !r.toggles["son_3d"]);
         assert!(r.adapted["distance"].contains("Snapdragon"));
+    }
+
+    /// Haut puis Moyen sur une grosse machine : la distance redescend, dans
+    /// l'écran comme dans options.txt (signalé le 25/09 : « reste en Haut »).
+    #[test]
+    fn distance_suit_le_prereglage() {
+        let f = parse(REAL).unwrap();
+        let hw = Hardware { ram_gb: 32.0, cpu_threads: 20, gpu_dedicated: true, vram_gb: 16.0, gpu_name: String::new(), shared_memory: false, windows_arm: false, display: Default::default() };
+        let dir = std::env::temp_dir().join(format!("turicraft-dist-{}", std::process::id()));
+        let paths = crate::paths::Paths::new(dir.clone());
+        let mut s = crate::settings::Settings::default();
+        let mut distance = |preset: &str| {
+            s.preset = preset.into();
+            let r = resolve(&f, &hw, &s);
+            apply(&paths, &f, &r, &crate::progress::ConsoleReporter).unwrap();
+            let opts = std::fs::read_to_string(paths.instance().join("options.txt")).unwrap();
+            let written = opts.lines().find_map(|l| l.strip_prefix("renderDistance:")).unwrap().to_string();
+            (r.sliders["distance"], written)
+        };
+        assert_eq!(distance("haut"), (16, "16".to_string()));
+        assert_eq!(distance("moyen"), (10, "10".to_string()));
+        assert_eq!(distance("faible"), (8, "8".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 8 Go de RAM mais grosse carte : la mémoire a le dernier mot.
+    #[test]
+    fn la_memoire_limite_apres_la_grosse_carte() {
+        let f = parse(REAL).unwrap();
+        let hw = Hardware { ram_gb: 7.6, cpu_threads: 12, gpu_dedicated: true, vram_gb: 12.0, gpu_name: String::new(), shared_memory: false, windows_arm: false, display: Default::default() };
+        let r = resolve(&f, &hw, &crate::settings::Settings::default());
+        assert_eq!(r.preset, "haut");
+        assert_eq!((r.sliders["distance"], r.sliders["distance_lointaine"]), (10, 64));
+    }
+
+    #[test]
+    fn ce_que_les_prereglages_decident() {
+        let o = parse(REAL).unwrap().preset_owned();
+        assert!(o.sliders.contains("distance") && o.sliders.contains("distance_lointaine"));
+        assert!(!o.sliders.contains("interface") && !o.sliders.contains("images"));
+        assert!(o.toggles.contains("shaders") && !o.toggles.contains("balancement"));
+        assert!(o.mods.contains("animations"));
     }
 
     #[test]

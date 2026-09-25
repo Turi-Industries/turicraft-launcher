@@ -141,9 +141,9 @@ fn overview(state: State<'_, Arc<AppState>>) -> Overview {
 
 #[tauri::command]
 fn save_settings(state: State<'_, Arc<AppState>>, settings: Settings) -> CmdResult<()> {
-    settings.save(&state.paths).map_err(err)?;
-    *state.settings.lock().unwrap() = settings;
-    Ok(())
+    let mut s = state.settings.lock().unwrap();
+    s.take_user_choices(settings);
+    s.save(&state.paths).map_err(err)
 }
 
 #[derive(Serialize)]
@@ -154,18 +154,25 @@ struct PresetsView {
     memory_cap_gb: f64,
     /// Mémoire conseillée pour cette machine (mode Simple).
     memory_auto_gb: f64,
+    /// Choix du joueur effacés quand il choisit un préréglage.
+    preset_owned: presets::PresetOwned,
+    /// Réglages à jour, réglages faits en jeu compris : l'écran repart d'eux.
+    settings: Settings,
 }
 
 #[tauri::command]
 async fn presets_view(state: State<'_, Arc<AppState>>) -> CmdResult<PresetsView> {
-    let settings = state.settings.lock().unwrap().clone();
     let file = presets::fetch(&settings::pack_url()).await.map_err(err)?;
     let hw = hardware::detect();
+    import_game_changes(&state, &file, &hw);
+    let settings = state.settings.lock().unwrap().clone();
     Ok(PresetsView {
         detected: file.detect(&hw),
         resolved: presets::resolve(&file, &hw, &settings),
         memory_cap_gb: file.memory_cap_gb(&hw),
         memory_auto_gb: file.memory_auto_gb(&hw),
+        preset_owned: file.preset_owned(),
+        settings,
         file,
     })
 }
@@ -403,6 +410,26 @@ fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     s.save(&state.paths).map_err(err)
 }
 
+/// Réglages changés en jeu → réglages du launcher (launch::import_game_changes).
+fn import_game_changes(state: &AppState, file: &presets::PresetsFile, hw: &hardware::Hardware) -> Vec<String> {
+    let mut s = state.settings.lock().unwrap();
+    let changed = launch::import_game_changes(&state.paths, file, hw, &mut s);
+    if !changed.is_empty() {
+        let _ = s.save(&state.paths);
+    }
+    changed
+}
+
+/// Même chose avant « Jouer » ou « Réparer » : l'écran Qualité n'a peut-être
+/// pas été ouvert depuis la dernière partie.
+async fn import_before_launch(state: &AppState, r: &dyn Reporter) {
+    let Ok(file) = presets::fetch(&settings::pack_url()).await else { return };
+    let changed = import_game_changes(state, &file, &hardware::detect());
+    if !changed.is_empty() {
+        r.log(&format!("réglages faits en jeu repris : {}", changed.join(", ")));
+    }
+}
+
 /// Réparer, tout de suite : la préparation de « Jouer » (Java, Minecraft,
 /// NeoForge, pack, réglages) sans lancer le jeu, chaque fichier relu et
 /// comparé à son empreinte. Même file que « Jouer » : jamais les deux à la
@@ -433,8 +460,9 @@ fn repair(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
 }
 
 async fn repair_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
-    let settings = state.settings.lock().unwrap().clone();
     check_network(&state.paths).await?;
+    import_before_launch(state, r).await;
+    let settings = state.settings.lock().unwrap().clone();
     let prepared = launch::prepare(&state.paths, &settings, r).await?;
     let mut s = state.settings.lock().unwrap();
     s.applied = Some(prepared.applied.clone());
@@ -521,8 +549,9 @@ fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
 }
 
 async fn play_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> {
-    let settings = state.settings.lock().unwrap().clone();
     check_network(&state.paths).await?;
+    import_before_launch(state, r).await;
+    let settings = state.settings.lock().unwrap().clone();
     // Compte d'abord : inutile de tout préparer pour une session expirée.
     r.stage("account", "Compte");
     let session = match (settings::offline_name(), settings::azure_client_id()) {
@@ -614,6 +643,11 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
+            // Machine mesurée tout de suite, à côté : l'écran Qualité l'a
+            // ensuite sans attendre PowerShell.
+            std::thread::spawn(|| {
+                hardware::detect();
+            });
             app.manage(state);
             first_window_size(app.handle());
             Ok(())

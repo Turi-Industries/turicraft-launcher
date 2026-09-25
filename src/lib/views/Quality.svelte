@@ -46,8 +46,19 @@
 		return `${km(Math.max(sliderValue('distance'), far))} km`;
 	});
 
+	/** Choisir un préréglage, c'est lui confier ce qu'il décide (distances,
+	 *  shaders, mods…) : les choix du joueur sur ceux-là s'effacent. Ses
+	 *  préférences (balancement, taille de l'interface…) restent. */
 	function pick(id: string) {
 		if (!L.s || L.running) return;
+		const owned = L.pv?.preset_owned;
+		if (owned) {
+			for (const t of owned.toggles) delete L.s.toggles[t];
+			for (const sl of owned.sliders) delete L.s.sliders[sl];
+			const mods = { ...(L.s.mods ?? {}) };
+			for (const g of owned.mods) delete mods[g];
+			L.s.mods = mods;
+		}
 		L.s.preset = id;
 		L.save();
 	}
@@ -257,7 +268,7 @@
 		{/each}
 
 		<p class="faint">
-			Tout s’applique au prochain lancement du jeu. Ce que tu changes en jeu est gardé, tant que tu ne touches à rien ici.
+			Tout s’applique au prochain lancement du jeu. Distance, images/s, synchro ou shaders changés en jeu reviennent ici tout seuls.
 			« auto » : ajusté pour ta machine.
 		</p>
 	{/if}

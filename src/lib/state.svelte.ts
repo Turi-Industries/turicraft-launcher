@@ -106,11 +106,21 @@ class LauncherState {
 		api.skin().then((s) => (this.skin = s)).catch(() => (this.skin = null));
 	}
 
+	/** Numéro de la dernière demande : une réponse plus ancienne arrivée
+	 *  après (clics rapprochés) ne doit pas remplacer la plus récente. */
+	private presetsRequest = 0;
 	async refreshPresets() {
+		const n = ++this.presetsRequest;
 		try {
-			this.pv = await api.presets();
+			const pv = await api.presets();
+			if (n !== this.presetsRequest) return;
+			this.pv = pv;
+			// Réglages faits en jeu repris par le cœur : l'écran repart d'eux,
+			// sinon son prochain enregistrement les effacerait.
+			this.s = pv.settings;
 			this.presetsError = null;
 		} catch (e) {
+			if (n !== this.presetsRequest) return;
 			this.presetsError = String(e);
 		}
 	}
@@ -327,6 +337,7 @@ class LauncherState {
 						this.repairing = false;
 						this.repairDone = true;
 						this.log('Installation vérifiée et réparée');
+						this.refreshOverview();
 						break;
 					case 'gpu_warning':
 						this.gpuWarning = { renderer: e.renderer, advice: e.advice };
@@ -338,7 +349,8 @@ class LauncherState {
 						this.milestone = null;
 						this.crash = e.crash;
 						this.log(`Jeu fermé (code ${e.code ?? '?'})`);
-						this.refreshOverview();
+						// Ce qui a été réglé en jeu apparaît tout de suite dans Qualité.
+						this.refreshOverview().then(() => this.refreshPresets());
 						api.checkUpdates().then((u) => (this.updates = u)).catch(() => {});
 						break;
 				}

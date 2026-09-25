@@ -68,6 +68,9 @@ export interface Slider {
 }
 
 export interface PresetsView {
+	/** Choix du joueur effacés quand il choisit un préréglage. */
+	preset_owned: { toggles: string[]; sliders: string[]; mods: string[] };
+	settings: Settings;
 	file: {
 		optional_groups: Record<string, string[]>;
 		toggles: Record<

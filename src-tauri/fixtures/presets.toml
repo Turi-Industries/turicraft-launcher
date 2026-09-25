@@ -340,6 +340,15 @@ set = { "general.RestoreMessages.SplitLineEnabled" = false }
 # Conditions : min/max_ram_gb, min/max_cpu_threads, min/max_vram_gb,
 # gpu = "dedicated" | "integrated", windows_arm = true | false.
 
+# Ce qui AUGMENTE d'abord, ce qui limite ensuite : la dernière règle a le
+# dernier mot. « grosse carte graphique » placée après les règles de
+# mémoire donnait 16 / 192 à un PC de 8 Go avec une carte de 12 Go (25/09).
+[[adapt]]
+note = "grosse carte graphique"
+presets = ["haut"]
+when = { min_vram_gb = 12 }
+sliders = { distance = 16, distance_lointaine = 192 }
+
 [[adapt]]
 note = "carte graphique intégrée"
 when = { gpu = "integrated" }
@@ -368,12 +377,6 @@ note = "PC Snapdragon (Windows ARM)"
 when = { windows_arm = true }
 toggles = { shaders = false, vue_lointaine = false, son_3d = false, objets_physiques = false }
 sliders = { distance = 8 }
-
-[[adapt]]
-note = "grosse carte graphique"
-presets = ["haut"]
-when = { min_vram_gb = 12 }
-sliders = { distance = 16, distance_lointaine = 192 }
 
 [[adapt]]
 note = "processeur à 16 fils ou plus"

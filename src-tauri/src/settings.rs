@@ -82,6 +82,23 @@ impl Settings {
             .unwrap_or_default()
     }
 
+    /// Ce que l'écran a le droit de changer : les choix du joueur. Le reste
+    /// (réglages appliqués, réglages « une fois », compte, durées) est tenu
+    /// par le cœur : l'écran en garde une copie qui peut dater — la renvoyer
+    /// telle quelle effaçait ce que le dernier lancement avait noté (réglages
+    /// faits en jeu écrasés, langue remise en français — 25/09).
+    pub fn take_user_choices(&mut self, from: Settings) {
+        self.preset = from.preset;
+        self.custom_base = from.custom_base;
+        self.custom_groups = from.custom_groups;
+        self.custom_memory_gb = from.custom_memory_gb;
+        self.toggles = from.toggles;
+        self.mods = from.mods;
+        self.sliders = from.sliders;
+        self.join_server = from.join_server;
+        self.launcher_behavior = from.launcher_behavior;
+    }
+
     pub fn save(&self, paths: &Paths) -> Result<()> {
         std::fs::create_dir_all(&paths.root)?;
         let tmp = paths.settings().with_extension("json.tmp");
@@ -108,4 +125,20 @@ pub fn offline_name() -> Option<String> {
 
 pub fn azure_client_id() -> Option<String> {
     crate::config::AZURE_CLIENT_ID.map(String::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// L'écran renvoie une copie ancienne : ce que le cœur a noté depuis reste.
+    #[test]
+    fn l_ecran_ne_change_que_les_choix_du_joueur() {
+        let mut core = Settings { applied: Some("neuf".into()), once_applied: 1, last_milestones_ms: vec![1, 2], account: Some(Account { name: "J".into(), uuid: "u".into() }), ..Default::default() };
+        let ui = Settings { preset: "moyen".into(), join_server: true, applied: None, once_applied: 0, ..Default::default() };
+        core.take_user_choices(ui);
+        assert_eq!((core.preset.as_str(), core.join_server), ("moyen", true));
+        assert_eq!((core.applied.as_deref(), core.once_applied, core.last_milestones_ms.len()), (Some("neuf"), 1, 2));
+        assert!(core.account.is_some());
+    }
 }

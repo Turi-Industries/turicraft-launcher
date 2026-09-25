@@ -25,7 +25,16 @@ pub struct Hardware {
     pub display: crate::display::Display,
 }
 
+/// Mesurée une fois par lancement du launcher : sous Windows, la carte et
+/// l'écran passent par PowerShell (une à deux secondes). Refaite à chaque
+/// clic de l'écran Qualité, elle faisait arriver les réponses dans le
+/// désordre — un préréglage choisi s'affichait avec les valeurs du précédent.
 pub fn detect() -> Hardware {
+    static CACHE: std::sync::OnceLock<Hardware> = std::sync::OnceLock::new();
+    CACHE.get_or_init(detect_now).clone()
+}
+
+fn detect_now() -> Hardware {
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
     let ram_gb = sys.total_memory() as f64 / 1024f64.powi(3);

@@ -12,7 +12,19 @@
 //! `<données>` : `~/.local/share` (Linux), `~/Library/Application Support`
 //! (macOS), `%APPDATA%` (Windows).
 
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
+
+/// `base/rel`, pour un chemin relatif venu du réseau (manifeste Java de
+/// Mojang, bibliothèques, presets.toml) : refusé s'il est absolu ou remonte
+/// (`..`) — un fichier mal formé ou trafiqué ne doit rien écrire hors de
+/// `base`.
+pub fn safe_join(base: &Path, rel: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
+    let rel = rel.as_ref();
+    if rel.as_os_str().is_empty() || !rel.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) {
+        anyhow::bail!("chemin refusé (hors du dossier prévu) : {}", rel.display());
+    }
+    Ok(base.join(rel))
+}
 
 #[derive(Clone, Debug)]
 pub struct Paths {
@@ -59,5 +71,21 @@ impl Paths {
     }
     pub fn tools(&self) -> PathBuf {
         self.root.join("tools")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_join;
+    use std::path::Path;
+
+    #[test]
+    fn chemins_venus_du_reseau() {
+        let base = Path::new("/jeu");
+        assert_eq!(safe_join(base, "config/a.toml").unwrap(), Path::new("/jeu/config/a.toml"));
+        assert!(safe_join(base, "../settings.json").is_err());
+        assert!(safe_join(base, "config/../../x").is_err());
+        assert!(safe_join(base, "/etc/passwd").is_err());
+        assert!(safe_join(base, "").is_err());
     }
 }
