@@ -39,11 +39,14 @@ fn detect_now() -> Hardware {
     sys.refresh_memory();
     let ram_gb = sys.total_memory() as f64 / 1024f64.powi(3);
     let cpu_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    // Écran et carte graphique en même temps : deux PowerShell sous Windows.
+    let display = std::thread::spawn(crate::display::detect);
     let (gpu_name, gpu_dedicated, vram_gb) = gpu();
     let windows_arm = cfg!(windows) && native_arm64();
     // Snapdragon comme puce Apple : la carte graphique prend sur la RAM.
     let shared_memory = (cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64") || windows_arm;
-    Hardware { ram_gb, cpu_threads, gpu_name, gpu_dedicated, vram_gb, shared_memory, windows_arm, display: crate::display::detect() }
+    let display = display.join().unwrap_or_default();
+    Hardware { ram_gb, cpu_threads, gpu_name, gpu_dedicated, vram_gb, shared_memory, windows_arm, display }
 }
 
 /// Le processeur est-il ARM64, même si le launcher est la version x64 qui

@@ -126,17 +126,25 @@ struct Overview {
     launcher_version: &'static str,
 }
 
+/// Machine mesurée À CÔTÉ : une commande synchrone tourne sur le fil de la
+/// fenêtre, et la détection (PowerShell sous Windows, lent juste après
+/// l'installation) la figeait au démarrage (25/09).
+async fn hardware_off_ui() -> hardware::Hardware {
+    tauri::async_runtime::spawn_blocking(hardware::detect).await.unwrap_or_default()
+}
+
 #[tauri::command]
-fn overview(state: State<'_, Arc<AppState>>) -> Overview {
-    Overview {
+async fn overview(state: State<'_, Arc<AppState>>) -> CmdResult<Overview> {
+    let hardware = hardware_off_ui().await;
+    Ok(Overview {
         settings: state.settings.lock().unwrap().clone(),
-        hardware: hardware::detect(),
+        hardware,
         pack_version: packwiz::installed_pack_version(&state.paths),
         offline_name: settings::offline_name(),
         data_dir: state.paths.root.display().to_string(),
         disk_free_gb: hardware::disk_free_gb(&state.paths.root),
         launcher_version: config::LAUNCHER_VERSION,
-    }
+    })
 }
 
 #[tauri::command]
@@ -163,7 +171,7 @@ struct PresetsView {
 #[tauri::command]
 async fn presets_view(state: State<'_, Arc<AppState>>) -> CmdResult<PresetsView> {
     let file = presets::fetch(&settings::pack_url()).await.map_err(err)?;
-    let hw = hardware::detect();
+    let hw = hardware_off_ui().await;
     import_game_changes(&state, &file, &hw);
     let settings = state.settings.lock().unwrap().clone();
     Ok(PresetsView {
