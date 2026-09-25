@@ -39,6 +39,8 @@ STATES=(
   "options-mise-a-jour|vue=options&maj=1"
   "options-reparation|vue=options&etat=reparation"
   "options-repare|vue=options&etat=repare"
+  "options-raz|vue=options&etat=raz"
+  "options-raz-fait|vue=options&etat=raz-fait"
   "mise-a-jour-fenetre|vue=jouer&maj=1&popup=1"
   "journal|vue=journal"
 )

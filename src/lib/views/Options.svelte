@@ -125,6 +125,35 @@
 				>Réparer le launcher</button
 			>
 		</div>
+		<div class="repair sep">
+			<div class="grow">
+				<strong>Tout remettre à zéro</strong>
+				<div class="hint">
+					{#if L.resetDone}C’est fait : au prochain lancement, le jeu repart des réglages du pack.
+					{:else if L.resetAsk}Réglages du launcher, options du jeu, touches et configs des mods reviennent à ceux du pack. Ton compte, tes mondes, captures et cartes sont gardés.
+					{:else}Réglages du launcher et du jeu comme à l’installation. Ton compte reste connecté.{/if}
+				</div>
+				{#if L.resetError}
+					<div class="hint problem-text">{L.resetError}</div>
+				{/if}
+			</div>
+			{#if L.resetAsk}
+				<div class="row nowrap">
+					<button class="mc-btn small" onclick={() => (L.resetAsk = false)}>Annuler</button>
+					<button class="mc-btn small danger" disabled={L.running} onclick={() => L.resetSettings()}>Confirmer</button>
+				</div>
+			{:else}
+				<button
+					class="mc-btn small"
+					disabled={L.running || !!L.updating}
+					onclick={() => {
+						L.resetDone = false;
+						L.resetError = null;
+						L.resetAsk = true;
+					}}>Remettre à zéro</button
+				>
+			{/if}
+		</div>
 	</div>
 
 	{#if L.ov}
@@ -159,6 +188,9 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 16px;
+	}
+	.row.nowrap {
+		flex-wrap: nowrap;
 	}
 	.repair .grow {
 		flex: 1;

@@ -179,6 +179,8 @@ export const api = {
 	logout: () => invoke<void>('logout'),
 	skin: () => invoke<string>('skin'),
 	repair: () => invoke<void>('repair'),
+	/** Tout remettre à zéro sauf le compte ; rend les réglages remis à zéro. */
+	resetSettings: () => invoke<Settings>('reset_settings'),
 	openFolder: (which: 'instance' | 'logs' | 'crash' | 'screenshots') =>
 		invoke<void>('open_folder', { which }),
 	openUrl: (url: string) => invoke<void>('open_url', { url }),

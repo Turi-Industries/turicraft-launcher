@@ -482,6 +482,20 @@ async fn repair_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> 
 /// fichier du pack — la manœuvre manuelle de CLAUDE.md) et fait repasser
 /// l'installeur NeoForge.
 fn forget_install_state(paths: &Paths) -> anyhow::Result<()> {
+    forget_pack_hashes(paths)?;
+    // Et NeoForge : son installeur repasse (il revérifie ses fichiers).
+    if let Ok(dirs) = std::fs::read_dir(paths.versions()) {
+        for d in dirs.flatten() {
+            let id = d.file_name().to_string_lossy().into_owned();
+            let _ = std::fs::remove_file(neoforge::done_marker(paths, &id));
+        }
+    }
+    Ok(())
+}
+
+/// packwiz revérifiera chaque fichier du pack au prochain lancement, et
+/// remettra ceux qui manquent.
+fn forget_pack_hashes(paths: &Paths) -> anyhow::Result<()> {
     let p = paths.instance().join("packwiz.json");
     if let Ok(text) = std::fs::read_to_string(&p) {
         let mut v: serde_json::Value = serde_json::from_str(&text)?;
@@ -491,14 +505,78 @@ fn forget_install_state(paths: &Paths) -> anyhow::Result<()> {
         }
         std::fs::write(&p, serde_json::to_string_pretty(&v)?)?;
     }
-    // Et NeoForge : son installeur repasse (il revérifie ses fichiers).
-    if let Ok(dirs) = std::fs::read_dir(paths.versions()) {
-        for d in dirs.flatten() {
-            let id = d.file_name().to_string_lossy().into_owned();
-            let _ = std::fs::remove_file(neoforge::done_marker(paths, &id));
+    Ok(())
+}
+
+/// « Tout remettre à zéro » (Options), sauf le compte : réglages du
+/// launcher et réglages du jeu. Au lancement suivant, packwiz remet les
+/// fichiers de config du pack, Default Options les touches par défaut, et le
+/// launcher son préréglage (Auto) et ses réglages « une fois » (langue,
+/// paquets de ressources). Mondes, captures, schémas, cartes et points de
+/// passage ne sont pas touchés.
+#[tauri::command]
+async fn reset_settings(state: State<'_, Arc<AppState>>) -> CmdResult<Settings> {
+    {
+        let task = state.task.lock().unwrap();
+        if task.as_ref().is_some_and(|t| !t.inner().is_finished()) {
+            return Err("Ferme d’abord le jeu (ou attends la fin de la préparation).".into());
         }
     }
-    Ok(())
+    let paths = state.paths.clone();
+    tauri::async_runtime::spawn_blocking(move || reset_game_settings(&paths))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)?;
+    let mut s = state.settings.lock().unwrap();
+    *s = s.reset_keeping_account();
+    s.save(&state.paths).map_err(err)?;
+    Ok(s.clone())
+}
+
+/// Options du jeu (`options.txt` : touches, graphismes, langue) et configs des
+/// mods (`config/`), puis packwiz revérifie tout.
+fn reset_game_settings(paths: &Paths) -> anyhow::Result<()> {
+    let game = paths.instance();
+    let absent = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
+    if let Err(e) = std::fs::remove_file(game.join("options.txt")) {
+        if !absent(&e) {
+            return Err(e.into());
+        }
+    }
+    if let Err(e) = std::fs::remove_dir_all(game.join("config")) {
+        if !absent(&e) {
+            return Err(e.into());
+        }
+    }
+    forget_pack_hashes(paths)
+}
+
+#[cfg(test)]
+mod tests_remise_a_zero {
+    use super::{reset_game_settings, Paths};
+
+    #[test]
+    fn options_et_configs_effacees_mondes_gardes() {
+        let root = std::env::temp_dir().join(format!("turicraft-raz-{}", std::process::id()));
+        let game = root.join("instance");
+        std::fs::create_dir_all(game.join("config/xaero")).unwrap();
+        std::fs::create_dir_all(game.join("saves/Monde")).unwrap();
+        std::fs::write(game.join("options.txt"), "key_key.jump:key.keyboard.space\n").unwrap();
+        std::fs::write(game.join("config/xaero/minimap.cfg"), "x").unwrap();
+        std::fs::write(game.join("saves/Monde/level.dat"), "x").unwrap();
+        std::fs::write(game.join("packwiz.json"), r#"{"packFileHash":"a","indexFileHash":"b","cachedFiles":{}}"#).unwrap();
+
+        reset_game_settings(&Paths::new(root.clone())).unwrap();
+
+        assert!(!game.join("options.txt").exists());
+        assert!(!game.join("config").exists());
+        assert!(game.join("saves/Monde/level.dat").exists());
+        let pw = std::fs::read_to_string(game.join("packwiz.json")).unwrap();
+        assert!(!pw.contains("packFileHash") && pw.contains("cachedFiles"));
+        // Deuxième fois, rien à effacer : pas d'erreur.
+        reset_game_settings(&Paths::new(root.clone())).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[tauri::command]
@@ -692,6 +770,7 @@ pub fn run() {
             logout,
             skin,
             repair,
+            reset_settings,
             open_folder,
             open_url,
             play,

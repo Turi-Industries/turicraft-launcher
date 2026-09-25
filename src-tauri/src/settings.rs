@@ -99,6 +99,13 @@ impl Settings {
         self.launcher_behavior = from.launcher_behavior;
     }
 
+    /// « Tout remettre à zéro » (Options) : comme à l'installation, sauf le
+    /// compte et la durée des lancements sur cette machine (elle estime le
+    /// temps restant, ce n'est pas un réglage).
+    pub fn reset_keeping_account(&self) -> Self {
+        Self { account: self.account.clone(), last_milestones_ms: self.last_milestones_ms.clone(), ..Default::default() }
+    }
+
     pub fn save(&self, paths: &Paths) -> Result<()> {
         std::fs::create_dir_all(&paths.root)?;
         let tmp = paths.settings().with_extension("json.tmp");
@@ -140,5 +147,30 @@ mod tests {
         assert_eq!((core.preset.as_str(), core.join_server), ("moyen", true));
         assert_eq!((core.applied.as_deref(), core.once_applied, core.last_milestones_ms.len()), (Some("neuf"), 1, 2));
         assert!(core.account.is_some());
+    }
+
+    /// Remise à zéro : tout revient au défaut, sauf le compte et les durées.
+    #[test]
+    fn remise_a_zero_garde_le_compte() {
+        let mut toggles = BTreeMap::new();
+        toggles.insert("shaders".into(), false);
+        let s = Settings {
+            preset: "faible".into(),
+            toggles,
+            applied: Some("x".into()),
+            once_applied: 2,
+            once_files_applied: 1,
+            join_server: true,
+            launcher_behavior: "fermer".into(),
+            account: Some(Account { name: "J".into(), uuid: "u".into() }),
+            last_milestones_ms: vec![1, 2],
+            ..Default::default()
+        };
+        let r = s.reset_keeping_account();
+        assert_eq!(r.preset, "auto");
+        assert!(r.toggles.is_empty() && r.applied.is_none() && !r.join_server);
+        assert_eq!((r.once_applied, r.once_files_applied, r.launcher_behavior.as_str()), (0, 0, "reduire"));
+        assert_eq!(r.account.map(|a| a.name), Some("J".into()));
+        assert_eq!(r.last_milestones_ms, vec![1, 2]);
     }
 }

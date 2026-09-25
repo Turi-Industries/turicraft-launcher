@@ -60,6 +60,10 @@ class LauncherState {
 	/** « Réparer » en cours (Options) : même file que « Jouer », sans lancer le jeu. */
 	repairing = $state(false);
 	repairDone = $state(false);
+	/** « Tout remettre à zéro » : confirmation demandée, fait, erreur. */
+	resetAsk = $state(false);
+	resetDone = $state(false);
+	resetError = $state<string | null>(null);
 	/** « Réparer le launcher » : réinstallation en cours. */
 	reinstalling = $state(false);
 	error = $state<string | null>(null);
@@ -198,6 +202,21 @@ class LauncherState {
 		}
 	}
 
+	/** Réglages du launcher et du jeu comme à l'installation, compte gardé. */
+	async resetSettings() {
+		if (this.running) return;
+		this.resetAsk = false;
+		this.resetError = null;
+		try {
+			this.s = await api.resetSettings();
+			this.resetDone = true;
+			this.log('— Réglages remis à zéro (compte gardé)');
+			await this.refreshPresets();
+		} catch (e) {
+			this.resetError = String(e);
+		}
+	}
+
 	/** Réinstalle la dernière version du launcher ; il redémarre tout seul. */
 	async reinstallLauncher() {
 		this.updateError = null;
@@ -290,6 +309,8 @@ class LauncherState {
 		if (vue === 'jouer' || vue === 'qualite' || vue === 'options' || vue === 'journal') this.view = vue;
 		if (isPreview && ['prep', 'lancement', 'jeu', 'reparation'].includes(p.get('etat') ?? '')) this.running = true;
 		if (isPreview && p.get('etat') === 'reparation') this.repairing = true;
+		if (isPreview && p.get('etat') === 'raz') this.resetAsk = true;
+		if (isPreview && p.get('etat') === 'raz-fait') this.resetDone = true;
 
 		this.refreshOverview().then(() => this.refreshPresets());
 		const refreshServer = () => api.serverStatus().then((s) => (this.server = s));

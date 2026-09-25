@@ -4,7 +4,7 @@
 // publiée : n'est chargé que si Tauri est absent.
 //
 // L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
-// &etat=repos|prep|lancement|jeu|crash|pilote|integree|reparation|repare|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
+// &etat=repos|prep|lancement|jeu|crash|pilote|integree|reparation|repare|raz|raz-fait|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
 
 import type { LauncherEvent } from './api';
@@ -215,6 +215,8 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 				fr.readAsDataURL(b);
 			});
 		}
+		case 'reset_settings':
+			return { ...settings(), preset: 'auto', toggles: {}, sliders: {}, mods: {} };
 		case 'news':
 			return [
 				{ date: '2026-09-24', title: 'Le launcher Turi Craft arrive', body: 'Installation du jeu, des mods et des réglages en un clic, préréglages de qualité adaptés à ta machine, et connexion avec ton compte Microsoft.' },
