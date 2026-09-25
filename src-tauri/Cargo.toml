@@ -1,6 +1,6 @@
 [package]
 name = "turicraft-launcher"
-version = "0.1.7"
+version = "0.1.8"
 description = "Launcher du modpack Turi Craft"
 authors = ["Turi Industries"]
 license = "GPL-3.0-or-later"
