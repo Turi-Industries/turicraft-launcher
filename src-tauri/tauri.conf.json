@@ -53,7 +53,17 @@
     "publisher": "Turi Industries",
     "copyright": "© Turi Industries — GPL-3.0-or-later",
     "license": "GPL-3.0-or-later",
-    "homepage": "https://github.com/Turi-Industries/turicraft-launcher"
+    "homepage": "https://github.com/Turi-Industries/turicraft-launcher",
+    "windows": {
+      "nsis": {
+        "languages": [
+          "French"
+        ],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser"
+      }
+    }
   },
   "plugins": {
     "updater": {

@@ -192,6 +192,10 @@ pub async fn launch(
     let mut reached: Vec<u64> = Vec::new();
     let mut lines = crate::lines::Lines::new(child.stdout.take().unwrap());
     while let Some(line) = lines.next_line().await? {
+        if let Some((renderer, advice)) = crate::diag::slow_gl_driver(&line) {
+            r.log(&format!("pilote graphique lent : {renderer}"));
+            r.send(Event::GpuWarning { renderer, advice: advice.into() });
+        }
         let next = reached.len();
         if next < MILESTONES.len() && line.contains(MILESTONES[next].0) {
             let elapsed = start.elapsed().as_millis() as u64;

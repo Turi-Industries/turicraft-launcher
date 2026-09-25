@@ -27,6 +27,7 @@ STATES=(
   "jouer-lancement|vue=jouer&etat=lancement"
   "jouer-en-jeu|vue=jouer&etat=jeu"
   "jouer-crash|vue=jouer&etat=crash"
+  "jouer-pilote|vue=jouer&etat=pilote"
   "jouer-hors-ligne|vue=jouer&etat=hors-ligne"
   "jouer-pack-hs|vue=jouer&etat=pack-hs"
   "jouer-serveur-hs|vue=jouer&serveur=0&maj=1"

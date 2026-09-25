@@ -86,8 +86,10 @@ Tout ce qui est propre à Turi Craft est dans `src-tauri/src/config.rs`
 scripts/release.sh 0.2.0 "Ce qui change, pour les joueurs."
 ```
 
-Le tag `v0.2.0` déclenche la CI : installeurs des quatre plateformes, signés
-pour la mise à jour, et `latest.json`, dans une version GitHub.
+Le tag `v0.2.0` déclenche la CI : un installeur par système — Windows (x64
+et ARM64 dans le même fichier, `src-tauri/windows/universel.nsh`), macOS
+(universel Intel + Apple), Linux (AppImage, .deb) —, signés pour la mise à
+jour, et `latest.json`, dans une version GitHub.
 
 ## Licence
 

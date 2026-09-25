@@ -4,7 +4,7 @@
 // publiée : n'est chargé que si Tauri est absent.
 //
 // L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
-// &etat=repos|prep|lancement|jeu|crash|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
+// &etat=repos|prep|lancement|jeu|crash|pilote|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
 
 import type { LauncherEvent } from './api';
@@ -97,6 +97,14 @@ export function previewListen(cb: Handler) {
 			emit({ kind: 'stage', id: 'launch', label: 'Lancement du jeu' });
 			emit({ kind: 'milestone', index: 4, count: 7, label: 'Chargement des ressources', elapsed_ms: 36000, expected_ms: 78000 });
 			if (etat === 'jeu') emit({ kind: 'game_ready', elapsed_ms: 78000 });
+		} else if (etat === 'pilote') {
+			// Texte de diag::slow_gl_driver (Snapdragon sans pilote OpenGL natif).
+			emit({
+				kind: 'gpu_warning',
+				renderer: 'D3D12 (Qualcomm(R) Adreno(TM) X1-85 GPU)',
+				advice:
+					'OpenGL passe par une couche de compatibilité DirectX 12 : le jeu tourne bien plus lentement. Installe le dernier pilote graphique de ton PC (Windows Update → Options avancées → Mises à jour facultatives, ou le site du fabricant).'
+			});
 		} else if (etat === 'crash') {
 			emit({
 				kind: 'game_exited',

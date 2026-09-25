@@ -55,6 +55,8 @@ class LauncherState {
 	now = $state(Date.now());
 	inGame = $state(false);
 	crash = $state<CrashSummary | null>(null);
+	/** Pilote graphique qui ralentit le jeu, vu au dernier lancement. */
+	gpuWarning = $state<{ renderer: string; advice: string } | null>(null);
 	error = $state<string | null>(null);
 
 	// Connexion Microsoft : par le navigateur (par défaut), ou par code.
@@ -119,6 +121,7 @@ class LauncherState {
 		this.running = true;
 		this.inGame = false;
 		this.crash = null;
+		this.gpuWarning = null;
 		this.error = null;
 		this.milestone = null;
 		this.progress = { done: 0, total: 0 };
@@ -279,6 +282,10 @@ class LauncherState {
 					case 'game_ready':
 						this.inGame = true;
 						this.log(`Jeu prêt en ${(e.elapsed_ms / 1000).toFixed(1)} s`);
+						break;
+					case 'gpu_warning':
+						this.gpuWarning = { renderer: e.renderer, advice: e.advice };
+						this.log(`Pilote graphique lent : ${e.renderer}`);
 						break;
 					case 'game_exited':
 						this.running = false;

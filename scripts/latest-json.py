@@ -16,12 +16,15 @@ import urllib.parse
 BASE = os.environ.get("LAUNCHER_BASE_URL", "https://pack.turi-industries.eu/launcher/")
 
 # plateforme de l'updater → fin du nom du fichier de mise à jour
+# Un seul installeur Windows (x64 + ARM64) et une seule app Mac (universelle) :
+# les deux plateformes de chacun pointent vers le même fichier. Un launcher x64
+# installé sur un PC ARM redevient ainsi natif à sa prochaine mise à jour.
 PLATFORMS = {
     "linux-x86_64": "_amd64.AppImage",
-    "windows-x86_64": "_x64-setup.exe",
-    "windows-aarch64": "_arm64-setup.exe",
-    "darwin-aarch64": "_aarch64.app.tar.gz",
-    "darwin-x86_64": "_x64.app.tar.gz",
+    "windows-x86_64": "_windows-setup.exe",
+    "windows-aarch64": "_windows-setup.exe",
+    "darwin-aarch64": "_universal.app.tar.gz",
+    "darwin-x86_64": "_universal.app.tar.gz",
 }
 
 

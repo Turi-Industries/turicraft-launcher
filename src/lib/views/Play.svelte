@@ -118,6 +118,17 @@
 			</section>
 		{/if}
 
+		{#if L.gpuWarning}
+			<section class="panel problem">
+				<div class="section-title">Pilote graphique à mettre à jour</div>
+				<p>{L.gpuWarning.advice}</p>
+				<p class="hint">Carte vue par le jeu : {L.gpuWarning.renderer}</p>
+				<div class="row">
+					<button class="link" onclick={() => (L.gpuWarning = null)}>Masquer</button>
+				</div>
+			</section>
+		{/if}
+
 		{#if L.news.length}
 			<section class="news">
 				<div class="section-title">Nouveautés</div>

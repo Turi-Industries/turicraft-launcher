@@ -94,3 +94,41 @@ pub fn analyze(game_dir: &Path, since: SystemTime) -> Option<CrashSummary> {
         native: false,
     })
 }
+
+/// Pilote graphique qui ralentit tout le jeu, vu dans la ligne
+/// « OpenGL Renderer: … » que Minecraft écrit à l'ouverture de sa fenêtre.
+/// Rend le conseil à donner au joueur.
+pub fn slow_gl_driver(line: &str) -> Option<(String, &'static str)> {
+    let renderer = line.split_once("OpenGL Renderer:")?.1.trim().to_string();
+    let r = renderer.to_lowercase();
+    // Mesa GLOn12 (« D3D12 (Qualcomm(R) Adreno(TM) X1-85 GPU) ») : OpenGL
+    // traduit en DirectX 12, faute de pilote OpenGL natif — Snapdragon surtout.
+    let advice = if r.starts_with("d3d12") {
+        "OpenGL passe par une couche de compatibilité DirectX 12 : le jeu tourne bien plus lentement. \
+         Installe le dernier pilote graphique de ton PC (Windows Update → Options avancées → Mises à jour \
+         facultatives, ou le site du fabricant)."
+    } else if ["gdi generic", "llvmpipe", "softpipe", "microsoft basic render"].iter().any(|s| r.contains(s)) {
+        "Aucun pilote graphique n'est utilisé : le jeu est dessiné par le processeur. \
+         Installe le pilote de ta carte graphique (site du fabricant ou Windows Update)."
+    } else {
+        return None;
+    };
+    Some((renderer, advice))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slow_gl_driver;
+
+    #[test]
+    fn pilote_graphique_lent() {
+        let l = "[25Sep2026 12:23:27.107] [Render thread/INFO] [com.mojang.blaze3d.platform.Window/]: OpenGL Renderer: ";
+        let (name, advice) = slow_gl_driver(&format!("{l}D3D12 (Qualcomm(R) Adreno(TM) X1-85 GPU)")).unwrap();
+        assert_eq!(name, "D3D12 (Qualcomm(R) Adreno(TM) X1-85 GPU)");
+        assert!(advice.contains("DirectX 12"));
+        assert!(slow_gl_driver(&format!("{l}GDI Generic")).unwrap().1.contains("processeur"));
+        assert!(slow_gl_driver(&format!("{l}Qualcomm(R) Adreno(TM) X1-85 GPU")).is_none());
+        assert!(slow_gl_driver(&format!("{l}Apple M3")).is_none());
+        assert!(slow_gl_driver("OpenGL Vendor: Microsoft Corporation").is_none());
+    }
+}
