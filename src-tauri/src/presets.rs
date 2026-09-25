@@ -120,6 +120,8 @@ pub struct Cond {
     pub refresh_known: Option<bool>,
     /// La hauteur de l'écran principal est connue.
     pub height_known: Option<bool>,
+    /// PC Windows à processeur ARM (Snapdragon X).
+    pub windows_arm: Option<bool>,
 }
 
 impl Cond {
@@ -139,6 +141,7 @@ impl Cond {
             && self.vrr.map_or(true, |v| hw.display.vrr_active == v)
             && self.refresh_known.map_or(true, |v| hw.display.refresh_hz.is_some() == v)
             && self.height_known.map_or(true, |v| hw.display.height_px.is_some() == v)
+            && self.windows_arm.map_or(true, |v| hw.windows_arm == v)
     }
 }
 
@@ -332,7 +335,8 @@ impl PresetsFile {
                 _ => true,
             };
             let ok_vram = num("min_vram_gb").map_or(true, |m| m <= 0.0 || hw.vram_gb >= m - 0.25);
-            if ok_ram && ok_cpu && ok_gpu && ok_vram {
+            let ok_arm = rule.get("windows_arm").and_then(|v| v.as_bool()).map_or(true, |v| hw.windows_arm == v);
+            if ok_ram && ok_cpu && ok_gpu && ok_vram && ok_arm {
                 return id.clone();
             }
         }
@@ -744,7 +748,7 @@ mod tests {
             gpu_dedicated: dedicated,
             vram_gb: vram,
             gpu_name: String::new(),
-            shared_memory: false,
+            shared_memory: false, windows_arm: false,
             display: Default::default(),
         };
         assert_eq!(f.detect(&hw(32.0, 16, true, 8.0)), "haut");
@@ -768,7 +772,7 @@ mod tests {
             gpu_dedicated: !mac,
             vram_gb: if mac { 0.0 } else { 8.0 },
             gpu_name: String::new(),
-            shared_memory: mac,
+            shared_memory: mac, windows_arm: false,
             display: Default::default(),
         };
         let s = crate::settings::Settings::default();
@@ -801,7 +805,7 @@ mod tests {
     #[test]
     fn options_du_jeu() {
         let f = parse(REAL).unwrap();
-        let hw = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 12.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
+        let hw = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 12.0, gpu_name: String::new(), shared_memory: false, windows_arm: false, display: Default::default() };
         let mut s = crate::settings::Settings::default();
         // Haut : shaders et objets physiques activés par défaut
         let r = resolve(&f, &hw, &s);
@@ -835,14 +839,14 @@ mod tests {
         let s = crate::settings::Settings::default();
         // Portable à carte intégrée, 4 cœurs, 8 Go : Faible, sans shaders ni
         // son 3D, vue lointaine réduite
-        let hw = Hardware { ram_gb: 7.6, cpu_threads: 4, gpu_dedicated: false, vram_gb: 0.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
+        let hw = Hardware { ram_gb: 7.6, cpu_threads: 4, gpu_dedicated: false, vram_gb: 0.0, gpu_name: String::new(), shared_memory: false, windows_arm: false, display: Default::default() };
         let r = resolve(&f, &hw, &s);
         assert_eq!(r.preset, "faible");
         assert!(!r.toggles["shaders"] && !r.toggles["son_3d"]);
         assert_eq!(r.sliders["distance_lointaine"], 64);
         assert!(r.adapted.contains_key("son_3d"));
         // Grosse machine : distance 16, vue lointaine 192, 4 fils pour DH
-        let hw = Hardware { ram_gb: 32.0, cpu_threads: 20, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
+        let hw = Hardware { ram_gb: 32.0, cpu_threads: 20, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), shared_memory: false, windows_arm: false, display: Default::default() };
         let r = resolve(&f, &hw, &s);
         assert_eq!((r.sliders["distance"], r.sliders["distance_lointaine"]), (16, 192));
         assert!(r.adapt_files.contains_key("config/DistantHorizons.toml"));
@@ -855,6 +859,25 @@ mod tests {
         // Un mod coupé à la main
         s.mods.insert("animations".into(), false);
         assert!(!resolve(&f, &hw, &s).groups.contains(&"animations".to_string()));
+    }
+
+    /// Snapdragon X1 (12 cœurs, 16 Go, Adreno) : Faible, et pas davantage si
+    /// le joueur choisit Moyen — ça saccadait en Moyen (25/09).
+    #[test]
+    fn snapdragon_windows_arm() {
+        let f = parse(REAL).unwrap();
+        let hw = Hardware { ram_gb: 15.6, cpu_threads: 12, gpu_dedicated: false, vram_gb: 0.0, gpu_name: "Qualcomm(R) Adreno(TM) X1-85 GPU".into(), shared_memory: true, windows_arm: true, display: Default::default() };
+        let mut s = crate::settings::Settings::default();
+        let r = resolve(&f, &hw, &s);
+        assert_eq!(r.preset, "faible");
+        assert_eq!((r.memory_gb, r.gc.as_str()), (7.5, "G1"));   // mémoire partagée : 0,5 de moins
+        // Sans ARM, la même machine serait en Moyen.
+        assert_eq!(f.detect(&Hardware { windows_arm: false, ..hw.clone() }), "moyen");
+        s.preset = "moyen".into();
+        let r = resolve(&f, &hw, &s);
+        assert_eq!(r.sliders["distance"], 8);
+        assert!(!r.toggles["shaders"] && !r.toggles["vue_lointaine"] && !r.toggles["son_3d"]);
+        assert!(r.adapted["distance"].contains("Snapdragon"));
     }
 
     #[test]
@@ -884,7 +907,7 @@ mod tests {
             gpu_dedicated: true,
             vram_gb: 20.0,
             gpu_name: String::new(),
-            shared_memory: false,
+            shared_memory: false, windows_arm: false,
             display: crate::display::Display { refresh_hz: hz, height_px: Some(1440), vrr_capable: vrr, vrr_active: vrr, source: String::new() },
         };
         // Écran 144 Hz, FreeSync actif → synchro coupée, 141 i/s
@@ -950,10 +973,10 @@ mod tests {
             t["client"]["advanced"]["debugging"]["rendererMode"].as_str().unwrap().to_string()
         };
         // Mac à puce Apple : mémoire partagée → carte « intégrée » → DH coupé.
-        let mac = Hardware { ram_gb: 16.0, cpu_threads: 10, gpu_dedicated: false, vram_gb: 0.0, gpu_name: "Apple Silicon".into(), shared_memory: true, display: Default::default() };
+        let mac = Hardware { ram_gb: 16.0, cpu_threads: 10, gpu_dedicated: false, vram_gb: 0.0, gpu_name: "Apple Silicon".into(), shared_memory: true, windows_arm: false, display: Default::default() };
         assert_eq!(mode(&mac), "DISABLED");
         // Grosse carte dédiée : DH actif.
-        let pc = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), shared_memory: false, display: Default::default() };
+        let pc = Hardware { ram_gb: 32.0, cpu_threads: 16, gpu_dedicated: true, vram_gb: 20.0, gpu_name: String::new(), shared_memory: false, windows_arm: false, display: Default::default() };
         assert_eq!(mode(&pc), "DEFAULT");
         std::fs::remove_dir_all(&dir).ok();
     }

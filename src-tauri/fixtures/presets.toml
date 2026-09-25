@@ -24,6 +24,11 @@ schema = 1
 # Le préréglage suit la CARTE GRAPHIQUE et le PROCESSEUR : peu de RAM ne veut
 # pas dire des graphismes moches. La RAM règle la mémoire du jeu ([memory])
 # et, dans [[adapt]], ce qui en consomme vraiment (distance de vue lointaine).
+#
+# `windows_arm = false` : PC Windows à processeur ARM (Snapdragon X) exclu.
+# Son processeur tiendrait Moyen, pas sa puce Adreno : pilote OpenGL moins
+# rodé, mémoire partagée — ça saccadait en Moyen (Snapdragon X1, 25/09).
+# Launchers 0.1.6 et avant : clé ignorée.
 [detection]
 order = ["haut", "moyen", "faible"]
 
@@ -31,12 +36,14 @@ order = ["haut", "moyen", "faible"]
 min_cpu_threads = 8
 gpu = "dedicated"      # dedicated | any
 min_vram_gb = 6
+windows_arm = false
 
 [detection.moyen]
 min_ram_gb = 6         # en dessous, même la mémoire du jeu manque
 min_cpu_threads = 6
 gpu = "any"            # cartes intégrées et puces Apple comprises
 min_vram_gb = 0
+windows_arm = false
 
 [detection.faible]
 # toujours accepté
@@ -45,7 +52,7 @@ min_vram_gb = 0
 # Selon la RAM de la machine, pas selon la qualité graphique. Le palier le
 # plus haut atteint (RAM arrondie : un « 8 Go » en annonce ~7,6).
 #   8 Go → 6 Go : il en reste 2 pour le système et ce que Java prend hors du tas.
-# Puce Apple : la carte graphique prend sur la même mémoire → `shared_gpu_gb`
+# Puce Apple ou Snapdragon : la carte graphique prend sur la même mémoire → `shared_gpu_gb`
 # de moins (Mac 8 Go → 5,5 Go ; à 5 Go, grosses saccades — 24/09).
 # Réglage manuel (mode Avancé) : au plus RAM − `min_free_gb` (− shared_gpu_gb).
 [memory]
@@ -331,7 +338,7 @@ set = { "general.RestoreMessages.SplitLineEnabled" = false }
 # `when` (et, si `presets` est donné, pour ces préréglages seulement). Ce sont
 # des valeurs conseillées : le choix du joueur passe toujours par-dessus.
 # Conditions : min/max_ram_gb, min/max_cpu_threads, min/max_vram_gb,
-# gpu = "dedicated" | "integrated".
+# gpu = "dedicated" | "integrated", windows_arm = true | false.
 
 [[adapt]]
 note = "carte graphique intégrée"
@@ -353,6 +360,14 @@ note = "8 Go de mémoire"
 presets = ["haut"]
 when = { max_ram_gb = 9 }
 sliders = { distance = 10 }   # les chunks chargés tiennent dans la mémoire du jeu ; l'image reste Haut
+
+# Snapdragon : aussi quand le joueur choisit Moyen ou Haut lui-même — ce qui
+# coûte le plus à la puce Adreno reste coupé par défaut (il peut le rallumer).
+[[adapt]]
+note = "PC Snapdragon (Windows ARM)"
+when = { windows_arm = true }
+toggles = { shaders = false, vue_lointaine = false, son_3d = false, objets_physiques = false }
+sliders = { distance = 8 }
 
 [[adapt]]
 note = "grosse carte graphique"
@@ -391,15 +406,15 @@ sliders = { images = "ecran-3" }
 [presets.faible]
 label = "Faible"
 toggles = { shaders = false, vue_lointaine = false, son_3d = false, objets_physiques = false, synchro_verticale = false }
-description = "Processeur modeste : l'essentiel, sans sacrifier l'image."
+description = "Processeur modeste ou PC Snapdragon : l'essentiel, sans sacrifier l'image."
 memory_gb = 5         # launchers 0.1.x seulement : la mémoire suit la machine ([memory])
 # Bon marché, et ce qui se voit le plus : textures connectées, chat animé.
 groups = ["textures_connectees", "interface_animee"]
 resource_packs = []   # Fresh Animations retiré : EMF est désactivé
 
 [presets.faible.options]   # options.txt, valeurs telles que Minecraft les écrit
-# Faible ne sert plus qu'aux PROCESSEURS modestes (moins de 6 fils) : on
-# économise ce qui leur coûte (distance, particules, nuages), pas l'image.
+# Faible sert aux PROCESSEURS modestes (moins de 6 fils) et aux PC Snapdragon :
+# on économise ce qui leur coûte (distance, particules, nuages), pas l'image.
 renderDistance = "8"
 simulationDistance = "5"   # solo seulement ; le serveur impose la sienne
 graphicsMode = "0"         # 0 rapides, 1 détaillés

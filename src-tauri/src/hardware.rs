@@ -16,6 +16,10 @@ pub struct Hardware {
     /// Puce Apple : processeur et carte graphique partagent la même mémoire.
     #[serde(default)]
     pub shared_memory: bool,
+    /// PC Windows à processeur ARM (Snapdragon X) : carte Adreno intégrée,
+    /// pilote OpenGL moins rodé — préréglages revus à la baisse (presets.toml).
+    #[serde(default)]
+    pub windows_arm: bool,
     /// L'écran principal : fréquence, VRR.
     #[serde(default)]
     pub display: crate::display::Display,
@@ -27,8 +31,32 @@ pub fn detect() -> Hardware {
     let ram_gb = sys.total_memory() as f64 / 1024f64.powi(3);
     let cpu_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     let (gpu_name, gpu_dedicated, vram_gb) = gpu();
-    let shared_memory = cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64";
-    Hardware { ram_gb, cpu_threads, gpu_name, gpu_dedicated, vram_gb, shared_memory, display: crate::display::detect() }
+    let windows_arm = cfg!(windows) && native_arm64();
+    // Snapdragon comme puce Apple : la carte graphique prend sur la RAM.
+    let shared_memory = (cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64") || windows_arm;
+    Hardware { ram_gb, cpu_threads, gpu_name, gpu_dedicated, vram_gb, shared_memory, windows_arm, display: crate::display::detect() }
+}
+
+/// Le processeur est-il ARM64, même si le launcher est la version x64 qui
+/// tourne en émulation (Prism) ? `consts::ARCH` dit pour quoi le launcher a
+/// été compilé, pas sur quoi il tourne : il faut demander à Windows.
+#[cfg(windows)]
+pub fn native_arm64() -> bool {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn IsWow64Process2(process: isize, process_machine: *mut u16, native_machine: *mut u16) -> i32;
+    }
+    const IMAGE_FILE_MACHINE_ARM64: u16 = 0xAA64;
+    let (mut process, mut native) = (0u16, 0u16);
+    // SAFETY : pseudo-handle du processus courant, deux u16 à remplir.
+    let ok = unsafe { IsWow64Process2(GetCurrentProcess(), &mut process, &mut native) } != 0;
+    if ok { native == IMAGE_FILE_MACHINE_ARM64 } else { std::env::consts::ARCH == "aarch64" }
+}
+
+#[cfg(not(windows))]
+pub fn native_arm64() -> bool {
+    std::env::consts::ARCH == "aarch64"
 }
 
 fn run(cmd: &str, args: &[&str]) -> Option<String> {
@@ -100,7 +128,12 @@ fn gpu() -> (String, bool, f64) {
             let Some((name, mem)) = line.split_once('|') else { continue };
             let vram = mem.trim().parse::<f64>().unwrap_or(0.0) / 1024f64.powi(3);
             let lname = name.to_lowercase();
-            let integrated = (lname.contains("intel") && !lname.contains("arc")) || lname.contains("basic display");
+            // Adreno (Snapdragon X) : intégrée, mais le registre lui prête
+            // parfois plusieurs Go — elle passait pour une carte dédiée.
+            let integrated = (lname.contains("intel") && !lname.contains("arc"))
+                || lname.contains("qualcomm")
+                || lname.contains("adreno")
+                || lname.contains("basic display");
             let dedicated = !integrated && vram >= 2.0;
             if dedicated && !best.1 || vram > best.2 {
                 best = (name.trim().to_string(), dedicated, vram);

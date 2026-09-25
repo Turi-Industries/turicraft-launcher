@@ -52,9 +52,12 @@ struct RawDownload {
     url: String,
 }
 
-/// Clé de plateforme dans le catalogue de Mojang.
+/// Clé de plateforme dans le catalogue de Mojang. Sous Windows, celle du
+/// PROCESSEUR : un launcher x64 sur Snapdragon ferait sinon tourner Java — et
+/// tout le jeu — en émulation x64. Minecraft livre ses natives LWJGL arm64.
 fn platform() -> Result<&'static str> {
-    Ok(match (std::env::consts::OS, std::env::consts::ARCH) {
+    let arch = if cfg!(windows) && crate::hardware::native_arm64() { "aarch64" } else { std::env::consts::ARCH };
+    Ok(match (std::env::consts::OS, arch) {
         ("linux", "x86_64") => "linux",
         ("linux", "x86") => "linux-i386",
         ("macos", "aarch64") => "mac-os-arm64",
@@ -82,7 +85,12 @@ fn java_binary(root: &std::path::Path) -> PathBuf {
 pub async fn ensure_java(paths: &Paths, component: &str, reporter: &dyn Reporter) -> Result<PathBuf> {
     reporter.stage("java", "Java");
     let client = net::client();
-    let root = paths.runtime().join(component);
+    // Java arm64 sous un launcher x64 : dossier à part, pour ne pas mêler
+    // ses fichiers à ceux d'un runtime x64 déjà installé.
+    let root = match platform()? {
+        "windows-arm64" if std::env::consts::ARCH != "aarch64" => paths.runtime().join(format!("{component}-arm64")),
+        _ => paths.runtime().join(component),
+    };
     let java = java_binary(&root);
 
     let all: HashMap<String, HashMap<String, Vec<RuntimeEntry>>> = net::fetch_json(&client, RUNTIMES_URL)
