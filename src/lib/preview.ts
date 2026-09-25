@@ -122,7 +122,7 @@ export function previewError(cb: (message: string) => void) {
 		'hors-ligne':
 			'Pas de connexion Internet.\nElle est nécessaire pour vérifier ton compte et les mises à jour du pack avant de jouer. Vérifie ta connexion, puis relance.',
 		'pack-hs':
-			'Le serveur du pack (pack.turi-industries.eu) ne répond pas, alors qu'Internet fonctionne.\nRéessaie dans quelques minutes ; si ça dure, préviens un admin.'
+			"Le serveur du pack (pack.turi-industries.eu) ne répond pas, alors qu'Internet fonctionne.\nRéessaie dans quelques minutes ; si ça dure, préviens un admin."
 	};
 	if (etat && messages[etat]) setTimeout(() => cb(messages[etat]), 50);
 	return Promise.resolve(() => {});
