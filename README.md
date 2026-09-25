@@ -43,9 +43,9 @@ Sans interface, `turicraft-cli` passe par le même code :
 ```bash
 cd src-tauri
 export TURICRAFT_HOME=$PWD/target/tchome
-cargo run --bin turicraft-cli -- detect      # matériel, préréglage choisi
-cargo run --bin turicraft-cli -- prepare     # Java, Minecraft, NeoForge, pack, préréglage
-cargo run --bin turicraft-cli -- launch Moi  # et lance le jeu HORS LIGNE
+cargo run --features cli --bin turicraft-cli -- detect      # matériel, préréglage choisi
+cargo run --features cli --bin turicraft-cli -- prepare     # Java, Minecraft, NeoForge, pack, préréglage
+cargo run --features cli --bin turicraft-cli -- launch Moi  # et lance le jeu HORS LIGNE
 ```
 
 `TURICRAFT_PACK_URL` pointe vers un autre `pack.toml` (un serveur de pack

@@ -9,8 +9,18 @@ edition = "2021"
 rust-version = "1.77.2"
 # Deux exécutables : l'application (main.rs) et turicraft-cli, qui passe par
 # le même code sans interface — c'est lui qui sert aux essais sur une machine
-# sans écran, et au diagnostic chez un joueur.
+# sans écran. turicraft-cli seulement avec `--features cli` : sinon Tauri
+# l'embarque dans les installeurs Mac et Linux, et le build universel macOS
+# échoue (il ne fusionne que le binaire principal — v0.1.7, 25/09).
 default-run = "turicraft-launcher"
+
+[[bin]]
+name = "turicraft-cli"
+path = "src/bin/turicraft-cli.rs"
+required-features = ["cli"]
+
+[features]
+cli = []
 
 [lib]
 name = "turicraft_lib"
