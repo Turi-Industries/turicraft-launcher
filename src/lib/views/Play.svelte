@@ -2,6 +2,7 @@
 	import { api, go, FOLDERS } from '$lib/api';
 	import { isPreview } from '$lib/preview';
 	import { L } from '$lib/state.svelte';
+	import Jouer3D from './Jouer3D.svelte';
 	import Snake from './Snake.svelte';
 
 	const preset = $derived(L.pv ? L.pv.file.presets[L.pv.resolved.preset] : null);
@@ -19,49 +20,10 @@
 		if (e instanceof KeyboardEvent ? e.key === 'Escape' : !(e.target as Element).closest('.folders')) folders = false;
 	}
 
-	// « Jouer » en relief, qui fait de vrais tours sur lui-même : de dos, le
-	// texte se lit à l'envers. Une seule couche tournée en perspective, la
-	// tranche dessinée en ombres, recalculées à chaque image. Pas de
-	// « preserve-3d » : WebKitGTK sans composition l'aplatit et mélange les
-	// faces (26/09).
-	let spin = $state<HTMLSpanElement | null>(null);
-	/** Aperçu (&angle=…) : le texte figé sous cet angle, pour les captures. */
+	/** Survol de « Jouer » : le texte 3D passe au jaune. */
+	let playHot = $state(false);
+	/** Aperçu (&angle=…) : « Jouer » figé sous cet angle, pour les captures. */
 	const angle = isPreview ? new URLSearchParams(location.search).get('angle') : null;
-	const TURN_MS = 5000;
-	const DEPTH_PX = 6;
-
-	function paint(el: HTMLElement, deg: number) {
-		// Pile de profil (90°, 270°), le texte n'a plus de largeur : on
-		// s'arrête à 4° de part et d'autre, pour que la tranche reste visible.
-		const d = ((deg % 360) + 360) % 360;
-		const EDGE = 4;
-		const snap = (edge: number) => (d < edge ? Math.min(d, edge - EDGE) : Math.max(d, edge + EDGE));
-		const r = ((Math.abs(d - 90) < EDGE ? snap(90) : Math.abs(d - 270) < EDGE ? snap(270) : d) * Math.PI) / 180;
-		const cos = Math.cos(r);
-		const sin = Math.sin(r);
-		// Tranche : chaque couche est derrière la face, décalée à l'écran de
-		// −k·sin ; dans le plan tourné, ça fait −k·tan. Bornée : près du
-		// profil, la perspective en faisait une longue traînée.
-		const tan = Math.max(-4, Math.min(4, -sin / cos));
-		const layers = [];
-		for (let k = 1; k <= DEPTH_PX; k++) layers.push(`${(tan * k).toFixed(2)}px 0 0 var(--depth)`);
-		layers.push('0 2px 0 #111');
-		el.style.transform = `perspective(260px) rotateY(${((r * 180) / Math.PI).toFixed(2)}deg)`;
-		el.style.textShadow = layers.join(', ');
-	}
-
-	$effect(() => {
-		const el = spin;
-		if (!el) return;
-		if (angle !== null) return paint(el, Number(angle));
-		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-		const t0 = performance.now();
-		let raf = requestAnimationFrame(function frame(now) {
-			paint(el, (((now - t0) / TURN_MS) * 360) % 360);
-			raf = requestAnimationFrame(frame);
-		});
-		return () => cancelAnimationFrame(raf);
-	});
 </script>
 
 <svelte:window onclick={folders ? closeFolders : undefined} onkeydown={folders ? closeFolders : undefined} />
@@ -246,7 +208,7 @@
 								><path d="M0 1h4l1 1h7v8H0z" fill="currentColor" /><path d="M1 4h10v5H1z" fill="#000" opacity=".35" /></svg
 							>
 							Dossiers
-							<!-- Vers la droite : un menu s'ouvre ; vers le bas : il est ouvert. -->
+							<!-- Vers la droite : un menu s'ouvre ; vers le haut : il est ouvert, au-dessus. -->
 							<svg class="caret" viewBox="0 0 4 6" width="6" height="9" aria-hidden="true"
 								><path d="M0 0h1v1h1v1h1v2H2v1H1v1H0z" fill="currentColor" /></svg
 							>
@@ -276,8 +238,15 @@
 				</div>
 			</div>
 			{#if L.playerName}
-				<button class="mc-btn play-btn" onclick={() => L.play()} disabled={!L.canPlay} aria-label="Jouer">
-					<span class="spin" aria-hidden="true" bind:this={spin}>Jouer</span>
+				<button
+					class="mc-btn play-btn"
+					onclick={() => L.play()}
+					onmouseenter={() => (playHot = true)}
+					onmouseleave={() => (playHot = false)}
+					disabled={!L.canPlay}
+					aria-label="Jouer"
+				>
+					<Jouer3D hot={playHot} disabled={!L.canPlay} angle={angle === null ? null : Number(angle)} />
 				</button>
 			{:else}
 				<!-- Sans compte, l'action principale est de se connecter. -->
@@ -496,8 +465,9 @@
 		margin-left: 2px;
 		transition: transform 0.12s;
 	}
+	/* Le menu s'ouvre vers le haut : la flèche aussi. */
 	.chip.open .caret {
-		transform: rotate(90deg);
+		transform: rotate(-90deg);
 	}
 	.chip strong {
 		color: var(--text);
@@ -520,20 +490,9 @@
 	.play-btn.login {
 		font-size: 16px;
 	}
-	/* Texte 3D qui tourne : transformation et ombres posées par paint(). */
+	/* « Jouer » en 3D : le canevas de Jouer3D couvre le bouton. */
 	.play-btn:not(.login) {
-		--depth: #2b2b2b;
-		text-shadow: none;
-	}
-	.play-btn:hover:not(:disabled) {
-		--depth: #7a6412;
-	}
-	.play-btn:disabled {
-		--depth: #1c1c1c;
-	}
-	.spin {
-		display: inline-block;
-		will-change: transform;
+		position: relative;
 	}
 
 	.folders {
