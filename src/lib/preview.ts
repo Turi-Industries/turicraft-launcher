@@ -56,6 +56,20 @@ const presetsFile = {
 		interface: { label: 'Taille de l’interface', description: 'Menus, inventaire, barre de vie. Réglée sur la définition de ton écran.', min: 1, max: 6, step: 1, unit: 'gui', requires: null },
 		images: { label: 'Images par seconde maximum', description: 'Réglé sur la fréquence de ton écran : au-delà, les images ne s’affichent pas. 260 = illimité.', min: 30, max: 260, step: 10, unit: 'fps', requires: null }
 	},
+	choices: {
+		shader_pack: {
+			category: 'graphismes',
+			label: 'Pack de shaders',
+			description: 'Quel pack de shaders utiliser.',
+			default: 'unbound',
+			requires: 'shaders',
+			values: [
+				{ id: 'unbound', label: 'Unbound', description: 'Complementary Unbound : lumière, ciel et eau plus travaillés.' },
+				{ id: 'reimagined', label: 'Reimagined', description: 'Complementary Reimagined : plus proche de Minecraft d’origine.' },
+				{ id: 'autre', label: 'Autre', description: 'Un pack ajouté dans le dossier shaderpacks et choisi en jeu (Options vidéo, Shaders) : le launcher n’y touche pas.', other: true }
+			]
+		}
+	},
 	presets: {
 		faible: { label: 'Faible', description: 'Petites machines, 8 Go de RAM : l’essentiel.', groups: [], toggles: { shaders: false, vue_lointaine: false, son_3d: false, objets_physiques: false } },
 		moyen: { label: 'Moyen', description: 'Animations et lumières, vue à 1 km.', groups: ['animations', 'joueur', 'lumieres'], toggles: { shaders: false, objets_physiques: false } },
@@ -73,6 +87,7 @@ function settings() {
 		toggles: p.get('perso') === '1' ? { vue_lointaine: false } : {},
 		sliders: p.get('perso') === '1' ? { distance: 10 } : {},
 		mods: p.get('perso') === '1' ? { sons_ambiance: false } : {},
+		choices: p.get('perso') === '1' ? { shader_pack: 'autre' } : {},
 		join_server: false,
 		launcher_behavior: 'reduire',
 		account: p.get('compte') === '0' ? null : { name: 'Joueur_Turi', uuid: '00000000000040008000000000000000' },
@@ -180,6 +195,7 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 					groups: ['animations', 'joueur', 'lumieres', 'particules', 'textures_connectees', 'aeronautics_visuel', 'sons_legers', ...(p.get('perso') === '1' ? [] : ['sons_ambiance'])],
 					toggles: { shaders: true, vue_lointaine: p.get('perso') !== '1', son_3d: true, objets_physiques: true, premiere_personne: true, synchro_verticale: false, plein_ecran: true, infobulle: true, titres_biomes: true, balancement: true },
 					sliders: { distance: 16, distance_lointaine: 192, interface: 3, images: 141 },
+					choices: { shader_pack: p.get('perso') === '1' ? 'autre' : 'unbound' },
 					adapted: p.get('perso') === '1' ? { distance_lointaine: 'grosse carte graphique' } : { distance: 'grosse carte graphique', distance_lointaine: 'grosse carte graphique', images: 'écran FreeSync / G-Sync actif', interface: 'définition de ton écran principal', synchro_verticale: 'écran FreeSync / G-Sync actif' },
 					memory_gb: 10,
 					gc: 'ZGC'
@@ -216,7 +232,7 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 			});
 		}
 		case 'reset_settings':
-			return { ...settings(), preset: 'auto', toggles: {}, sliders: {}, mods: {} };
+			return { ...settings(), preset: 'auto', toggles: {}, sliders: {}, mods: {}, choices: {} };
 		case 'news':
 			return [
 				{ date: '2026-09-24', title: 'Le launcher Turi Craft arrive', body: 'Installation du jeu, des mods et des réglages en un clic, préréglages de qualité adaptés à ta machine, et connexion avec ton compte Microsoft.' },

@@ -165,10 +165,39 @@ description = "Ombres, reflets, eau réaliste. Demande une bonne carte graphique
 default = true
 [toggles.shaders.files."config/iris.properties"]
 format = "properties"
-set = { enableShaders = "true", shaderPack = "ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5" }
+set = { enableShaders = "true" }
 [toggles.shaders.off.files."config/iris.properties"]
 format = "properties"
 set = { enableShaders = "false" }
+
+# Quel pack de shaders : `[choices]` (launcher 0.1.13+). Écrit APRÈS les
+# interrupteurs. « Autre » n'écrit rien : un pack ajouté par le joueur dans
+# shaderpacks/ et choisi en jeu est repris par le launcher, qui n'y touche
+# plus, même quand ce fichier ou le pack changent.
+[choices.shader_pack]
+category = "graphismes"
+label = "Pack de shaders"
+description = "Quel pack de shaders utiliser."
+default = "unbound"
+requires = "shaders"
+
+[[choices.shader_pack.values]]
+id = "unbound"
+label = "Unbound"
+description = "Complementary Unbound : lumière, ciel et eau plus travaillés."
+files."config/iris.properties" = { format = "properties", set = { shaderPack = "ComplementaryUnbound_r5.9.3 + EuphoriaPatches_1.10.5" } }
+
+[[choices.shader_pack.values]]
+id = "reimagined"
+label = "Reimagined"
+description = "Complementary Reimagined : plus proche de Minecraft d'origine."
+files."config/iris.properties" = { format = "properties", set = { shaderPack = "ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5" } }
+
+[[choices.shader_pack.values]]
+id = "autre"
+label = "Autre"
+description = "Un pack ajouté dans le dossier shaderpacks et choisi en jeu (Options vidéo, Shaders) : le launcher n’y touche pas."
+other = true
 
 [toggles.vue_lointaine]
 category = "graphismes"
@@ -316,8 +345,18 @@ default = 260
 # change de langue en jeu, c'est son choix. Monter `version` le repose une
 # fois chez tout le monde.
 [once]
-version = 1         # options.txt : la monter les repose UNE fois chez tout le monde
-options = { lang = "fr_fr" }
+version = 2         # options.txt : la monter les repose UNE fois chez tout le monde
+# Paquets de ressources (version 2, 25/09), du moins au plus prioritaire :
+# - E19 Cobblemon Minimap Icons : icônes Pokémon de la minimap Xaero, SOUS
+#   mod_resources — E19 réécrit 139 resolvers de Cobblemon avec leur version
+#   1.7 (sans les yeux des Alpha…) ; en dessous, Cobblemon 1.8 garde la main
+#   sur ces fichiers et E19 n'apporte que ses icônes ;
+# - RCT Trainers+, puis RCT BDSP par-dessus (il remplace 51 de ses dresseurs).
+#   BDSP se déclare au format 48 (Minecraft plus récent) : textures seules,
+#   elles marchent ; sans incompatibleResourcePacks, le jeu le retirerait.
+# Le launcher garde ensuite ces paquets à leur place et ajoute les siens
+# (Fresh Animations) au-dessus.
+options = { lang = "fr_fr", resourcePacks = '["vanilla","file/E19 Cobblemon Minimap Icons.zip","fabric","mod_resources","aeronauticshotairfix:hot_air_fix","file/RCT Trainers+ [1.6] v2.1.zip","file/RCT Brilliant Diamond & Shining Pearl Skins.zip"]', incompatibleResourcePacks = '["file/RCT Brilliant Diamond & Shining Pearl Skins.zip"]' }
 files_version = 1   # fichiers ci-dessous, suivis à part (launcher 0.1.4 et plus)
 # Pas d'accueil « Appuie sur V pour configurer » de Simple Voice Chat : V
 # marche toujours. Fichier propre à chaque joueur (micro, volumes) : posé ici,
@@ -348,6 +387,11 @@ note = "grosse carte graphique"
 presets = ["haut"]
 when = { min_vram_gb = 12 }
 sliders = { distance = 16, distance_lointaine = 192 }
+# Shaders en profil HIGH : ombres à 192 blocs, reflets des blocs, ombres des
+# créatures (profile.HIGH de Complementary)
+files."shaderpacks/ComplementaryUnbound_r5.9.3 + EuphoriaPatches_1.10.5.txt" = { format = "properties", set = { SHADOW_QUALITY = "2", shadowDistance = "192.0", WATER_REFLECT_QUALITY = "2", BLOCK_REFLECT_QUALITY = "3", LIGHTSHAFT_QUALI_DEFINE = "2", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "1", DETAIL_QUALITY = "2", CLOUD_QUALITY = "2", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "1", RAIN_PUDDLES = "0" } }
+files."shaderpacks/ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5.txt" = { format = "properties", set = { SHADOW_QUALITY = "2", shadowDistance = "192.0", WATER_REFLECT_QUALITY = "2", BLOCK_REFLECT_QUALITY = "3", LIGHTSHAFT_QUALI_DEFINE = "2", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "1", DETAIL_QUALITY = "2", CLOUD_QUALITY = "2", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "1", RAIN_PUDDLES = "0" } }
+files."config/iris.properties" = { format = "properties", set = { maxShadowRenderDistance = "12" } }
 
 [[adapt]]
 note = "carte graphique intégrée"
@@ -446,6 +490,21 @@ set = { "common.multiThreading.numberOfThreads" = 1 }
 format = "properties"
 set = { enabled = "false" }
 
+# Shaders, si le joueur les allume : profil POTATO de Complementary (sans ombres).
+# Valeurs recopiées de `profile.POTATO` (shaders/shaders.properties du pack
+# Complementary Unbound et Reimagined r5.9.3 : identiques dans les deux).
+[presets.faible.files."shaderpacks/ComplementaryUnbound_r5.9.3 + EuphoriaPatches_1.10.5.txt"]
+format = "properties"
+set = { SHADOW_QUALITY = "-1", shadowDistance = "64.0", WATER_REFLECT_QUALITY = "1", BLOCK_REFLECT_QUALITY = "0", LIGHTSHAFT_QUALI_DEFINE = "0", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "-1", DETAIL_QUALITY = "0", CLOUD_QUALITY = "1", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "-1", RAIN_PUDDLES = "0" }
+
+[presets.faible.files."shaderpacks/ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5.txt"]
+format = "properties"
+set = { SHADOW_QUALITY = "-1", shadowDistance = "64.0", WATER_REFLECT_QUALITY = "1", BLOCK_REFLECT_QUALITY = "0", LIGHTSHAFT_QUALI_DEFINE = "0", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "-1", DETAIL_QUALITY = "0", CLOUD_QUALITY = "1", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "-1", RAIN_PUDDLES = "0" }
+
+[presets.faible.files."config/iris.properties"]
+format = "properties"
+set = { maxShadowRenderDistance = "4" }   # chunks rendus pour les ombres (Iris : 32)
+
 # ════════════════════════════════════════════════════════════════════════════
 [presets.moyen]
 label = "Moyen"
@@ -484,6 +543,21 @@ set = { "client.advanced.graphics.quality.lodChunkRenderDistanceRadius" = 64, "c
 format = "properties"
 set = { enabled = "true", environment_evaluation_ray_count = "16", environment_evaluation_ray_bounces = "2" }
 
+# Shaders, si le joueur les allume : profil LOW de Complementary (ombres basses, sans rayons de lumière).
+# Valeurs recopiées de `profile.LOW` (shaders/shaders.properties du pack
+# Complementary Unbound et Reimagined r5.9.3 : identiques dans les deux).
+[presets.moyen.files."shaderpacks/ComplementaryUnbound_r5.9.3 + EuphoriaPatches_1.10.5.txt"]
+format = "properties"
+set = { SHADOW_QUALITY = "0", shadowDistance = "96.0", WATER_REFLECT_QUALITY = "2", BLOCK_REFLECT_QUALITY = "1", LIGHTSHAFT_QUALI_DEFINE = "0", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "-1", DETAIL_QUALITY = "2", CLOUD_QUALITY = "2", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "-1", RAIN_PUDDLES = "0" }
+
+[presets.moyen.files."shaderpacks/ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5.txt"]
+format = "properties"
+set = { SHADOW_QUALITY = "0", shadowDistance = "96.0", WATER_REFLECT_QUALITY = "2", BLOCK_REFLECT_QUALITY = "1", LIGHTSHAFT_QUALI_DEFINE = "0", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "-1", DETAIL_QUALITY = "2", CLOUD_QUALITY = "2", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "-1", RAIN_PUDDLES = "0" }
+
+[presets.moyen.files."config/iris.properties"]
+format = "properties"
+set = { maxShadowRenderDistance = "6" }   # chunks rendus pour les ombres (Iris : 32)
+
 # ════════════════════════════════════════════════════════════════════════════
 [presets.haut]
 label = "Haut"
@@ -520,4 +594,19 @@ set = { "client.advanced.graphics.quality.lodChunkRenderDistanceRadius" = 128, "
 [presets.haut.files."config/sound_physics_remastered/soundphysics.properties"]
 format = "properties"
 set = { enabled = "true", environment_evaluation_ray_count = "32", environment_evaluation_ray_bounces = "4" }
+
+# Shaders, si le joueur les allume : profil MEDIUM de Complementary (ombres à 128 blocs, rayons de lumière légers ; HIGH avec une grosse carte graphique, voir [[adapt]]).
+# Valeurs recopiées de `profile.MEDIUM` (shaders/shaders.properties du pack
+# Complementary Unbound et Reimagined r5.9.3 : identiques dans les deux).
+[presets.haut.files."shaderpacks/ComplementaryUnbound_r5.9.3 + EuphoriaPatches_1.10.5.txt"]
+format = "properties"
+set = { SHADOW_QUALITY = "2", shadowDistance = "128.0", WATER_REFLECT_QUALITY = "2", BLOCK_REFLECT_QUALITY = "1", LIGHTSHAFT_QUALI_DEFINE = "1", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "1", DETAIL_QUALITY = "2", CLOUD_QUALITY = "2", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "-1", RAIN_PUDDLES = "0" }
+
+[presets.haut.files."shaderpacks/ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5.txt"]
+format = "properties"
+set = { SHADOW_QUALITY = "2", shadowDistance = "128.0", WATER_REFLECT_QUALITY = "2", BLOCK_REFLECT_QUALITY = "1", LIGHTSHAFT_QUALI_DEFINE = "1", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "1", DETAIL_QUALITY = "2", CLOUD_QUALITY = "2", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "-1", RAIN_PUDDLES = "0" }
+
+[presets.haut.files."config/iris.properties"]
+format = "properties"
+set = { maxShadowRenderDistance = "10" }   # chunks rendus pour les ombres (Iris : 32)
 

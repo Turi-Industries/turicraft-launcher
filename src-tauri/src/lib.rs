@@ -475,6 +475,7 @@ async fn repair_inner(state: &AppState, r: &dyn Reporter) -> anyhow::Result<()> 
     let mut s = state.settings.lock().unwrap();
     s.applied = Some(prepared.applied.clone());
     (s.once_applied, s.once_files_applied) = prepared.once_applied;
+    s.choices_applied = prepared.resolved.choices.clone();
     s.save(&state.paths)
 }
 
@@ -669,6 +670,7 @@ async fn play_inner(state: &AppState, r: &dyn Reporter, screen: Option<(u32, u32
         let mut s = state.settings.lock().unwrap();
         s.applied = Some(prepared.applied.clone());
         (s.once_applied, s.once_files_applied) = prepared.once_applied;
+        s.choices_applied = prepared.resolved.choices.clone();
         s.save(&state.paths)?;
     }
     // Fenêtre de chargement : un tiers de l'écran, ou la taille laissée par

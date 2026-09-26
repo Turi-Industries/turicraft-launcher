@@ -24,6 +24,8 @@ export interface Settings {
 	custom_memory_gb: number | null;
 	toggles: Record<string, boolean>;
 	sliders: Record<string, number>;
+	/** Choix (pack de shaders…) faits par le joueur ou repris du jeu. */
+	choices: Record<string, string>;
 	mods: Record<string, boolean>;
 	join_server: boolean;
 	launcher_behavior: Behavior;
@@ -67,6 +69,16 @@ export interface Slider {
 	requires: string | null;
 }
 
+export interface Choice {
+	label: string;
+	description: string;
+	category: string;
+	default: string;
+	/** Interrupteur sans lequel le choix est grisé. */
+	requires: string | null;
+	values: { id: string; label: string; description: string; other?: boolean }[];
+}
+
 export interface PresetsView {
 	/** Choix du joueur effacés quand il choisit un préréglage. */
 	preset_owned: { toggles: string[]; sliders: string[]; mods: string[] };
@@ -79,6 +91,8 @@ export interface PresetsView {
 		>;
 		group_info: Record<string, { label: string; description: string }>;
 		sliders: Record<string, Slider>;
+		/** Absent d'un presets.toml d'avant le launcher 0.1.13. */
+		choices?: Record<string, Choice>;
 		presets: Record<string, Preset>;
 	};
 	detected: string;
@@ -87,6 +101,7 @@ export interface PresetsView {
 		groups: string[];
 		toggles: Record<string, boolean>;
 		sliders: Record<string, number>;
+		choices?: Record<string, string>;
 		memory_gb: number;
 		gc: string;
 		adapted: Record<string, string>;

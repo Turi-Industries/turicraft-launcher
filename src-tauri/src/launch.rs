@@ -93,32 +93,54 @@ pub fn applied_hash(paths: &Paths, file: &presets::PresetsFile, resolved: &prese
 /// l'écrase pas au lancement suivant. Seulement si RIEN n'a changé côté
 /// launcher depuis le dernier lancement (sinon, le launcher a le dernier
 /// mot, comme avant). Rend les réglages repris.
+///
+/// Exception, les choix (pack de shaders) : chacun est comparé à sa valeur
+/// du dernier lancement, pas à l'empreinte de tous les réglages. Une mise à
+/// jour du pack change l'empreinte ; elle ne doit pas remplacer le pack de
+/// shaders que le joueur a choisi en jeu.
 pub fn import_game_changes(paths: &Paths, file: &presets::PresetsFile, hw: &crate::hardware::Hardware, s: &mut Settings) -> Vec<String> {
-    let Some(stored) = s.applied.clone() else { return Vec::new() };
     let resolved = presets::resolve(file, hw, s);
-    if applied_hash(paths, file, &resolved) != stored {
-        return Vec::new();
-    }
-    let (sliders, toggles) = presets::game_values(&paths.instance(), file);
+    let unchanged = s.applied.as_deref().is_some_and(|stored| applied_hash(paths, file, &resolved) == stored);
+    let (sliders, toggles, choices) = presets::game_values(&paths.instance(), file);
     let mut changed = Vec::new();
-    for (id, v) in toggles {
-        if resolved.toggles.get(&id) != Some(&v) {
-            s.toggles.insert(id.clone(), v);
-            changed.push(id);
+    for (id, v) in choices {
+        // Changé dans le launcher depuis la dernière partie : il l'emporte.
+        let touched_in_launcher = s.choices_applied.get(&id).is_some_and(|a| Some(a) != resolved.choices.get(&id));
+        if touched_in_launcher || resolved.choices.get(&id) == Some(&v) {
+            continue;
         }
+        // Sans lancement noté (launcher tout juste à jour), seule une valeur
+        // inconnue du launcher est reprise : ailleurs, la valeur conseillée
+        // s'applique (Unbound à la place de Reimagined, 26/09).
+        if !unchanged && !s.choices_applied.contains_key(&id) && file.choices[&id].values.iter().any(|x| x.id == v && !x.other) {
+            continue;
+        }
+        s.choices.insert(id.clone(), v);
+        changed.push(id);
     }
-    for (id, v) in sliders {
-        // Curseur grisé (vue lointaine coupée) : sa valeur ne compte pas.
-        let active = file.sliders[&id].requires.as_ref().map_or(true, |t| s.toggles.get(t).copied().or(resolved.toggles.get(t).copied()).unwrap_or(false));
-        if active && resolved.sliders.get(&id) != Some(&v) {
-            s.sliders.insert(id.clone(), v);
-            changed.push(id);
+    if unchanged {
+        for (id, v) in toggles {
+            if resolved.toggles.get(&id) != Some(&v) {
+                s.toggles.insert(id.clone(), v);
+                changed.push(id);
+            }
+        }
+        for (id, v) in sliders {
+            // Curseur grisé (vue lointaine coupée) : sa valeur ne compte pas.
+            let active = file.sliders[&id].requires.as_ref().map_or(true, |t| s.toggles.get(t).copied().or(resolved.toggles.get(t).copied()).unwrap_or(false));
+            if active && resolved.sliders.get(&id) != Some(&v) {
+                s.sliders.insert(id.clone(), v);
+                changed.push(id);
+            }
         }
     }
     if !changed.is_empty() {
-        // Le jeu a déjà ces valeurs : rien à réécrire au prochain lancement.
         let now = presets::resolve(file, hw, s);
-        s.applied = Some(applied_hash(paths, file, &now));
+        s.choices_applied.extend(now.choices.clone());
+        // Le jeu a déjà ces valeurs : rien à réécrire au prochain lancement.
+        if unchanged {
+            s.applied = Some(applied_hash(paths, file, &now));
+        }
     }
     changed
 }
@@ -376,6 +398,64 @@ mod tests_reglages_en_jeu {
         let text = std::fs::read_to_string(&opts).unwrap().replace("renderDistance:12", "renderDistance:20");
         std::fs::write(&opts, text).unwrap();
         assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Pack de shaders ajouté par le joueur et choisi en jeu : repris
+    /// (« Autre ») et jamais écrasé, même quand presets.toml ou le pack
+    /// changent. Reimagined d'avant le choix (launcher 0.1.12) : remplacé par
+    /// Unbound, la valeur conseillée (26/09).
+    #[test]
+    fn pack_de_shaders_du_joueur_garde() {
+        let file = presets::parse(include_str!("../fixtures/presets.toml")).unwrap();
+        let hw = crate::hardware::Hardware { ram_gb: 32.0, cpu_threads: 20, gpu_dedicated: true, vram_gb: 16.0, ..Default::default() };
+        let dir = std::env::temp_dir().join(format!("turicraft-shaders-{}", std::process::id()));
+        let paths = Paths::new(dir.clone());
+        let iris = paths.instance().join("config/iris.properties");
+        let pack = || std::fs::read_to_string(&iris).unwrap().lines().find_map(|l| l.strip_prefix("shaderPack=").map(String::from)).unwrap();
+        let apply = |s: &mut Settings| {
+            let r = presets::resolve(&file, &hw, s);
+            presets::apply(&paths, &file, &r, &crate::progress::ConsoleReporter).unwrap();
+            s.applied = Some(applied_hash(&paths, &file, &r));
+            s.choices_applied = r.choices.clone();
+        };
+        let mut s = Settings { preset: "haut".into(), ..Default::default() };
+        // Installation neuve : rien à reprendre, Unbound.
+        assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
+        std::fs::create_dir_all(iris.parent().unwrap()).unwrap();
+        std::fs::write(&iris, "enableShaders=false\nshaderPack=\n").unwrap();
+        assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
+
+        // Venu du launcher 0.1.12 : Reimagined, aucun choix noté.
+        std::fs::write(&iris, "enableShaders=true\nshaderPack=ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5\n").unwrap();
+        s.applied = Some("empreinte du launcher 0.1.12".into());
+        assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
+        apply(&mut s);
+        assert_eq!(pack(), "ComplementaryUnbound_r5.9.3 + EuphoriaPatches_1.10.5");
+
+        // En jeu : un pack ajouté par le joueur. Le pack du serveur a changé
+        // entre-temps (autre empreinte) : repris quand même.
+        let text = std::fs::read_to_string(&iris).unwrap().replace(&pack(), "BSL_v10.0.zip");
+        std::fs::write(&iris, text).unwrap();
+        s.applied = Some("mise à jour du pack".into());
+        assert_eq!(import_game_changes(&paths, &file, &hw, &mut s), vec!["shader_pack".to_string()]);
+        assert_eq!(s.choices["shader_pack"], "autre");
+        apply(&mut s);
+        assert_eq!(pack(), "BSL_v10.0.zip");
+        // Au lancement suivant, toujours rien à reprendre ni à écraser.
+        assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
+
+        // Reimagined choisi en jeu : repris tel quel.
+        let text = std::fs::read_to_string(&iris).unwrap().replace(&pack(), "ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5");
+        std::fs::write(&iris, text).unwrap();
+        assert_eq!(import_game_changes(&paths, &file, &hw, &mut s), vec!["shader_pack".to_string()]);
+        assert_eq!(s.choices["shader_pack"], "reimagined");
+
+        // Le joueur choisit Unbound dans le launcher : il l'emporte.
+        s.choices.insert("shader_pack".into(), "unbound".into());
+        assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty());
+        apply(&mut s);
+        assert_eq!(pack(), "ComplementaryUnbound_r5.9.3 + EuphoriaPatches_1.10.5");
         std::fs::remove_dir_all(&dir).ok();
     }
 

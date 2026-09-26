@@ -25,6 +25,12 @@ pub struct Settings {
     pub mods: BTreeMap<String, bool>,
     /// Curseurs (distances, images par seconde) changés par le joueur.
     pub sliders: BTreeMap<String, i64>,
+    /// Choix (pack de shaders…) faits par le joueur, ou repris du jeu.
+    pub choices: BTreeMap<String, String>,
+    /// Valeur de chaque choix au dernier lancement : si le jeu a changé
+    /// depuis sans que le joueur touche au launcher, c'est le jeu qui a
+    /// raison (launch::import_game_changes).
+    pub choices_applied: BTreeMap<String, String>,
     /// Empreinte des réglages appliqués au dernier lancement. Tant qu'elle ne
     /// change pas, le launcher ne réécrit rien : ce que le joueur a réglé EN
     /// JEU (distance, plein écran…) est gardé.
@@ -62,6 +68,8 @@ impl Default for Settings {
             custom_memory_gb: None,
             toggles: BTreeMap::new(),
             sliders: BTreeMap::new(),
+            choices: BTreeMap::new(),
+            choices_applied: BTreeMap::new(),
             mods: BTreeMap::new(),
             applied: None,
             once_applied: 0,
@@ -95,6 +103,7 @@ impl Settings {
         self.toggles = from.toggles;
         self.mods = from.mods;
         self.sliders = from.sliders;
+        self.choices = from.choices;
         self.join_server = from.join_server;
         self.launcher_behavior = from.launcher_behavior;
     }

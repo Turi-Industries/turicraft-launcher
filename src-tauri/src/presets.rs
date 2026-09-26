@@ -26,6 +26,10 @@ pub struct PresetsFile {
     pub toggles: BTreeMap<String, Toggle>,
     #[serde(default)]
     pub sliders: BTreeMap<String, Slider>,
+    /// Choix entre plusieurs valeurs (pack de shaders…). Ignorés par les
+    /// launchers 0.1.12 et avant.
+    #[serde(default)]
+    pub choices: BTreeMap<String, Choice>,
     /// Nom et description de chaque groupe de mods optionnels (section Mods).
     #[serde(default)]
     pub group_info: BTreeMap<String, GroupInfo>,
@@ -270,6 +274,45 @@ pub struct Toggle {
     pub off: Option<ToggleOff>,
 }
 
+/// Choix entre plusieurs valeurs (mode Simple), chacune avec ses fichiers.
+/// Une valeur `other` n'écrit rien : le joueur règle ça en jeu, et le
+/// launcher la retient d'office quand le jeu a une valeur qu'il ne connaît
+/// pas (un pack de shaders ajouté par le joueur).
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct Choice {
+    #[serde(default)]
+    pub category: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    pub default: String,
+    /// Interrupteur sans lequel le choix est grisé (les shaders).
+    #[serde(default)]
+    pub requires: Option<String>,
+    pub values: Vec<ChoiceValue>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct ChoiceValue {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub files: BTreeMap<String, FileEdit>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub other: bool,
+}
+
+impl Choice {
+    fn has(&self, id: &str) -> bool {
+        self.values.iter().any(|v| v.id == id)
+    }
+    fn other(&self) -> Option<&ChoiceValue> {
+        self.values.iter().find(|v| v.other)
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct ToggleOff {
     #[serde(default)]
@@ -293,6 +336,7 @@ pub struct Resolved {
     pub groups: Vec<String>,
     pub toggles: BTreeMap<String, bool>,
     pub sliders: BTreeMap<String, i64>,
+    pub choices: BTreeMap<String, String>,
     pub memory_gb: f64,
     /// Ramasse-miettes retenu (« ZGC », « G1 ») et ses options Java.
     pub gc: String,
@@ -400,6 +444,7 @@ impl PresetsFile {
         }
         out.extend(self.adapt.iter().flat_map(|a| a.files.keys().cloned()));
         out.extend(self.sliders.values().filter_map(|s| s.file.clone()));
+        out.extend(self.choices.values().flat_map(|c| c.values.iter().flat_map(|v| v.files.keys().cloned())));
         out
     }
 
@@ -498,6 +543,14 @@ pub fn apply(paths: &Paths, file: &PresetsFile, r: &Resolved, reporter: &dyn Rep
         let files = if on { Some(&t.files) } else { t.off.as_ref().map(|o| &o.files) };
         for (rel, edit) in files.into_iter().flatten() {
             edit_file(&crate::paths::safe_join(&game, rel)?, edit).with_context(|| format!("option {id} : {rel}"))?;
+        }
+    }
+    // Après les interrupteurs : le choix du pack de shaders a le dernier mot
+    // sur iris.properties. La valeur « autre » n'écrit rien.
+    for (id, c) in &file.choices {
+        let Some(v) = r.choices.get(id).and_then(|v| c.values.iter().find(|x| &x.id == v)) else { continue };
+        for (rel, edit) in &v.files {
+            edit_file(&crate::paths::safe_join(&game, rel)?, edit).with_context(|| format!("choix {id} : {rel}"))?;
         }
     }
     for (rel, edit) in &r.adapt_files {
@@ -706,7 +759,7 @@ fn value_text(v: &toml::Value) -> String {
 /// options.txt (le launcher y force `false` à chaque lancement, launch.rs)
 /// mais dans config/turicraft/window.json : l'état de la fenêtre quand le
 /// joueur a quitté, écrit par le script KubeJS du pack.
-pub fn game_values(game: &Path, file: &PresetsFile) -> (BTreeMap<String, i64>, BTreeMap<String, bool>) {
+pub fn game_values(game: &Path, file: &PresetsFile) -> (BTreeMap<String, i64>, BTreeMap<String, bool>, BTreeMap<String, String>) {
     let mut sliders = BTreeMap::new();
     for (id, sl) in &file.sliders {
         let v = match (&sl.option, &sl.file, &sl.key) {
@@ -750,7 +803,25 @@ pub fn game_values(game: &Path, file: &PresetsFile) -> (BTreeMap<String, i64>, B
             }
         }
     }
-    (sliders, toggles)
+    let choices = file.choices.iter().filter_map(|(id, c)| Some((id.clone(), game_choice(game, c)?))).collect();
+    (sliders, toggles, choices)
+}
+
+/// Valeur d'un choix d'après les fichiers du jeu : celle dont les fichiers
+/// correspondent ; la valeur `other` si le jeu a autre chose (un pack de
+/// shaders ajouté par le joueur) ; rien si les clés sont vides ou absentes
+/// (installation neuve : la valeur conseillée s'applique).
+pub fn game_choice(game: &Path, c: &Choice) -> Option<String> {
+    let read = |rel: &str, e: &FileEdit, k: &str| read_setting(game, Some(rel), &e.format, k);
+    let known = c.values.iter().filter(|v| !v.files.is_empty()).find(|v| {
+        v.files.iter().all(|(rel, e)| e.set.iter().all(|(k, val)| read(rel, e, k).as_deref() == Some(value_text(val).as_str())))
+    });
+    if let Some(v) = known {
+        return Some(v.id.clone());
+    }
+    let other = c.other()?;
+    let set_somewhere = c.values.iter().flat_map(|v| v.files.iter()).any(|(rel, e)| e.set.keys().any(|k| read(rel, e, k).is_some_and(|x| !x.is_empty())));
+    set_somewhere.then(|| other.id.clone())
 }
 
 /// Résout le choix du joueur (réglages) en préréglage concret.
@@ -829,6 +900,14 @@ pub fn resolve(file: &PresetsFile, hw: &Hardware, s: &crate::settings::Settings)
             (id.clone(), v.clamp(sl.min, sl.max))
         })
         .collect();
+    let choices: BTreeMap<String, String> = file
+        .choices
+        .iter()
+        .map(|(id, c)| {
+            let v = s.choices.get(id).filter(|v| c.has(v)).unwrap_or(&c.default);
+            (id.clone(), v.clone())
+        })
+        .collect();
     let auto = file.memory_auto_gb(hw);
     let wanted = if s.preset == "personnalise" { s.custom_memory_gb.unwrap_or(auto) } else { auto };
     let memory_gb = half(wanted.min(file.memory_cap_gb(hw)).max(2.0));
@@ -836,7 +915,7 @@ pub fn resolve(file: &PresetsFile, hw: &Hardware, s: &crate::settings::Settings)
     let _ = preset;
     // Ce que le joueur a changé lui-même n'est plus « ajusté ».
     adapted.retain(|id, _| !s.toggles.contains_key(id) && !s.sliders.contains_key(id));
-    Resolved { preset: base, groups, toggles, sliders, memory_gb, gc, jvm_flags, adapted, adapt_files }
+    Resolved { preset: base, groups, toggles, sliders, choices, memory_gb, gc, jvm_flags, adapted, adapt_files }
 }
 
 /// Arrondi au demi-Go inférieur.
@@ -859,6 +938,9 @@ mod tests {
         assert!(f.toggles["shaders"].default);
         assert_eq!(f.presets["faible"].toggles.get("shaders"), Some(&false));
         assert!(f.all_optional().contains("mods/lambdynamiclights.pw.toml"));
+        let c = &f.choices["shader_pack"];
+        assert!(c.has(&c.default));
+        assert_eq!(c.values.iter().filter(|v| v.other).count(), 1, "une seule valeur « Autre »");
     }
 
     #[test]

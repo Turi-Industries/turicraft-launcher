@@ -14,6 +14,11 @@
 	const presets = $derived(L.pv?.file.presets ?? {});
 	const detectedLabel = $derived(L.pv ? presets[L.pv.detected]?.label : '');
 	const toggles = $derived(Object.entries(L.pv?.file.toggles ?? {}));
+	const choices = $derived(Object.entries(L.pv?.file.choices ?? {}));
+	/** Un choix s'affiche sous l'interrupteur dont il dépend, sinon en fin de section. */
+	const choicesAfter = (toggle: string) => choices.filter(([, c]) => c.requires === toggle);
+	const looseChoices = (sec: string, ids: string[]) =>
+		choices.filter(([, c]) => (c.category || 'graphismes') === sec && !(c.requires && ids.includes(c.requires)));
 	// Mods optionnels qu'aucune option ne pilote déjà : un interrupteur chacun.
 	const modGroups = $derived.by(() => {
 		if (!L.pv) return [];
@@ -22,7 +27,10 @@
 	});
 	const changed = $derived(
 		!!L.s &&
-			(Object.keys(L.s.toggles).length > 0 || Object.keys(L.s.sliders).length > 0 || Object.keys(L.s.mods ?? {}).length > 0)
+			(Object.keys(L.s.toggles).length > 0 ||
+				Object.keys(L.s.sliders).length > 0 ||
+				Object.keys(L.s.mods ?? {}).length > 0 ||
+				Object.keys(resettableChoices()).length > 0)
 	);
 
 	/** Valeur affichée d'un curseur : celle du joueur, sinon la conseillée. */
@@ -93,6 +101,18 @@
 		L.s.mods = { ...(L.s.mods ?? {}), [g]: on };
 		L.save();
 	}
+	function setChoice(id: string, v: string) {
+		if (!L.s) return;
+		L.s.choices = { ...(L.s.choices ?? {}), [id]: v };
+		L.save();
+	}
+	/** Choix revenant à la valeur conseillée. Pas « Autre » : c'est le pack
+	 *  de shaders que le joueur a ajouté lui-même, pas un réglage de qualité. */
+	function resettableChoices() {
+		const own = L.s?.choices ?? {};
+		const file = L.pv?.file.choices ?? {};
+		return Object.fromEntries(Object.entries(own).filter(([id, v]) => !file[id]?.values.find((x) => x.id === v)?.other));
+	}
 	function setSlider(id: string, v: number, save: boolean) {
 		if (!L.s) return;
 		L.s.sliders[id] = v;
@@ -103,9 +123,30 @@
 		L.s.toggles = {};
 		L.s.sliders = {};
 		L.s.mods = {};
+		const keep = new Set(Object.keys(resettableChoices()));
+		L.s.choices = Object.fromEntries(Object.entries(L.s.choices ?? {}).filter(([id]) => !keep.has(id)));
 		L.save();
 	}
 </script>
+
+{#snippet choiceRow(id: string, c: import('$lib/api').Choice)}
+	{@const off = !!c.requires && !L.pv?.resolved.toggles[c.requires]}
+	{@const cur = L.pv?.resolved.choices?.[id] ?? c.default}
+	<div class="choice" class:off>
+		<span>
+			{c.label}
+			{@render tags(id, L.s?.choices?.[id] !== undefined)}
+		</span>
+		<div class="segmented" role="radiogroup" aria-label={c.label}>
+			{#each c.values as v (v.id)}
+				<button role="radio" aria-checked={cur === v.id} class:on={cur === v.id} disabled={L.running || off} onclick={() => setChoice(id, v.id)}
+					>{v.label}</button
+				>
+			{/each}
+		</div>
+		<span class="hint">{c.values.find((v) => v.id === cur)?.description ?? c.description}</span>
+	</div>
+{/snippet}
 
 {#snippet tags(id: string, mine: boolean)}
 	{#if mine}<span class="tag mine">modifié</span>
@@ -245,6 +286,12 @@
 								onchange={(e) => setToggle(id, (e.currentTarget as HTMLInputElement).checked)}
 							/>
 						</label>
+						{#each choicesAfter(id) as [cid, c] (cid)}
+							{@render choiceRow(cid, c)}
+						{/each}
+					{/each}
+					{#each looseChoices(sec.id, items.map(([id]) => id)) as [cid, c] (cid)}
+						{@render choiceRow(cid, c)}
 					{/each}
 					{#if sec.id === 'mods'}
 						{#each modGroups as g (g)}
@@ -350,9 +397,22 @@
 		padding: 10px 0;
 	}
 	.slider + .slider,
-	.switch + .switch {
+	.switch + .switch,
+	.switch + .choice,
+	.choice + .switch {
 		border-top: 1px solid var(--line);
 	}
+	.choice {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 8px;
+		padding: 10px 0;
+	}
+	.choice.off {
+		opacity: 0.55;
+	}
+
 	.slider.off {
 		opacity: 0.55;
 	}
