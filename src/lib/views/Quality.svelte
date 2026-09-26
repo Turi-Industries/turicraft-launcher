@@ -222,6 +222,10 @@
 						max={L.pv.memory_cap_gb}
 						value={L.s.custom_memory_gb ?? L.pv.resolved.memory_gb}
 						disabled={L.running}
+						oninput={(e) => {
+							// La valeur suit le curseur ; enregistrée au lâcher.
+							if (L.s) L.s.custom_memory_gb = Number((e.currentTarget as HTMLInputElement).value);
+						}}
 						onchange={(e) => {
 							if (!L.s) return;
 							L.s.custom_memory_gb = Number((e.currentTarget as HTMLInputElement).value);
