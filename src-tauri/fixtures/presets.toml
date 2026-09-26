@@ -52,6 +52,8 @@ windows_arm = false
 # Selon la RAM de la machine, pas selon la qualité graphique. Le palier le
 # plus haut atteint (RAM arrondie : un « 8 Go » en annonce ~7,6).
 #   8 Go → 6 Go : il en reste 2 pour le système et ce que Java prend hors du tas.
+#   Au-delà de 16 Go, la moitié environ (26/09) : 420 mods, shaders et vue
+#   lointaine profitent d'un tas large, et le système garde de quoi vivre.
 # Puce Apple ou Snapdragon : la carte graphique prend sur la même mémoire → `shared_gpu_gb`
 # de moins (Mac 8 Go → 5,5 Go ; à 5 Go, grosses saccades — 24/09).
 # Réglage manuel (mode Avancé) : au plus RAM − `min_free_gb` (− shared_gpu_gb).
@@ -64,8 +66,8 @@ steps = [
   { ram = 6,  game = 4 },
   { ram = 8,  game = 6 },
   { ram = 12, game = 8 },
-  { ram = 24, game = 10 },
-  { ram = 32, game = 12 },
+  { ram = 24, game = 12 },
+  { ram = 32, game = 16 },
 ]
 
 # ─── Ramasse-miettes (Java 21 de Mojang, options vérifiées le 24/09) ────────

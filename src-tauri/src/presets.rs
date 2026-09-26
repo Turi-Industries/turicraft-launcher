@@ -988,8 +988,8 @@ mod tests {
         assert_eq!(r(&hw(8.0, 8, true)), (5.5, "G1".to_string()));    // Mac 8 Go : 0,5 de moins (24/09)
         assert_eq!(r(&hw(16.0, 10, true)), (7.5, "G1".to_string()));  // Mac 16 Go
         assert_eq!(r(&hw(15.3, 12, false)), (8.0, "ZGC".to_string())); // PC 16 Go
-        assert_eq!(r(&hw(32.0, 8, false)), (12.0, "ZGC".to_string()));
-        assert_eq!(r(&hw(23.2, 20, false)), (10.0, "ZGC".to_string())); // 24 Go annoncés 23,2
+        assert_eq!(r(&hw(32.0, 8, false)), (16.0, "ZGC".to_string()));
+        assert_eq!(r(&hw(23.2, 20, false)), (12.0, "ZGC".to_string())); // 24 Go annoncés 23,2
         assert_eq!(r(&hw(15.3, 4, false)), (8.0, "G1".to_string()));  // 4 fils : ZGC manquerait de cœurs
         // Plafond du réglage manuel : ce qu'il faut au système.
         assert_eq!(f.memory_cap_gb(&hw(7.6, 8, false)), 6.0);
