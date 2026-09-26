@@ -111,6 +111,27 @@ export interface PresetsView {
 	memory_auto_gb: number;
 }
 
+/** Dossiers que le launcher sait ouvrir (lib.rs, open_folder). */
+export type Folder =
+	| 'instance'
+	| 'logs'
+	| 'crash'
+	| 'screenshots'
+	| 'saves'
+	| 'schematics'
+	| 'resourcepacks'
+	| 'shaderpacks';
+
+/** Accès rapide (Jouer, Options) : ce que le joueur ajoute ou retrouve lui-même. */
+export const FOLDERS: { id: Folder; label: string; hint: string }[] = [
+	{ id: 'screenshots', label: 'Captures d’écran', hint: 'F2 en jeu' },
+	{ id: 'schematics', label: 'Schémas', hint: 'Create : table et canon à schémas' },
+	{ id: 'resourcepacks', label: 'Packs de ressources', hint: 'À activer en jeu' },
+	{ id: 'shaderpacks', label: 'Packs de shaders', hint: 'Choix « Autre » dans Qualité' },
+	{ id: 'saves', label: 'Mondes solo', hint: 'Sauvegardes des parties solo' },
+	{ id: 'instance', label: 'Dossier du jeu', hint: 'Tout le reste' }
+];
+
 /** « 5,5 Go » : les demi-Go s'écrivent à la française. */
 export function go(n: number): string {
 	return `${n.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Go`;
@@ -196,8 +217,9 @@ export const api = {
 	repair: () => invoke<void>('repair'),
 	/** Tout remettre à zéro sauf le compte ; rend les réglages remis à zéro. */
 	resetSettings: () => invoke<Settings>('reset_settings'),
-	openFolder: (which: 'instance' | 'logs' | 'crash' | 'screenshots') =>
-		invoke<void>('open_folder', { which }),
+	/** Redémarre le launcher (après la remise à zéro). */
+	restart: () => invoke<void>('restart'),
+	openFolder: (which: Folder) => invoke<void>('open_folder', { which }),
 	openUrl: (url: string) => invoke<void>('open_url', { url }),
 	play: () => invoke<void>('play'),
 	stop: () => invoke<void>('stop')

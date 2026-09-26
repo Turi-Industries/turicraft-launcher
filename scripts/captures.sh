@@ -43,6 +43,11 @@ STATES=(
   "options-raz-fait|vue=options&etat=raz-fait"
   "mise-a-jour-fenetre|vue=jouer&maj=1&popup=1"
   "journal|vue=journal"
+  "journal-lignes|vue=journal&journal=1"
+  "jouer-dossiers|vue=jouer&dossiers=1"
+  "jouer-3d-35|vue=jouer&angle=35"
+  "jouer-3d-80|vue=jouer&angle=80"
+  "jouer-3d-160|vue=jouer&angle=160"
 )
 
 for s in "${STATES[@]}"; do

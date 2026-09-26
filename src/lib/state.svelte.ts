@@ -24,6 +24,17 @@ export type View = 'jouer' | 'qualite' | 'options' | 'journal';
 
 type Milestone = { index: number; count: number; label: string; elapsed_ms: number; expected_ms: number };
 
+/** Une ligne du journal du launcher : heure, texte, et ce qu'elle signale. */
+export type LogLine = { t: number; text: string; kind: 'stage' | 'step' | 'error' | 'warn' | 'info' };
+
+function kindOf(text: string): LogLine['kind'] {
+	if (text.startsWith('— ')) return 'stage';
+	if (/^\[\d+\/\d+\]|^Jeu prêt/.test(text)) return 'step';
+	if (/^ERREUR|ERROR|Exception|FATAL|échec|impossible/i.test(text)) return 'error';
+	if (/WARN|pilote graphique|carte intégrée/i.test(text)) return 'warn';
+	return 'info';
+}
+
 class LauncherState {
 	view = $state<View>('jouer');
 	ov = $state<Overview | null>(null);
@@ -49,7 +60,7 @@ class LauncherState {
 	stage = $state('');
 	progress = $state({ done: 0, total: 0 });
 	lastLog = $state('');
-	logs = $state<string[]>([]);
+	logs = $state<LogLine[]>([]);
 	milestone = $state<Milestone | null>(null);
 	launchStart = $state(0);
 	now = $state(Date.now());
@@ -60,7 +71,8 @@ class LauncherState {
 	/** « Réparer » en cours (Options) : même file que « Jouer », sans lancer le jeu. */
 	repairing = $state(false);
 	repairDone = $state(false);
-	/** « Tout remettre à zéro » : confirmation demandée, fait, erreur. */
+	/** « Tout remettre à zéro » : confirmation demandée, fait (le launcher
+	 *  redémarre alors tout seul), erreur. */
 	resetAsk = $state(false);
 	resetDone = $state(false);
 	resetError = $state<string | null>(null);
@@ -91,8 +103,8 @@ class LauncherState {
 		return this.progress.total > 0 ? (this.progress.done / this.progress.total) * 100 : 0;
 	});
 
-	log(line: string) {
-		this.logs.push(line);
+	log(text: string) {
+		this.logs.push({ t: Date.now(), text, kind: kindOf(text) });
 		if (this.logs.length > 500) this.logs.splice(0, this.logs.length - 500);
 	}
 
@@ -211,7 +223,10 @@ class LauncherState {
 			this.s = await api.resetSettings();
 			this.resetDone = true;
 			this.log('— Réglages remis à zéro (compte gardé)');
-			await this.refreshPresets();
+			// Le temps de lire « Redémarrage… », puis il repart de zéro,
+			// comme à la première ouverture.
+			await new Promise((r) => setTimeout(r, 1200));
+			await api.restart();
 		} catch (e) {
 			this.resetError = String(e);
 		}
@@ -311,6 +326,24 @@ class LauncherState {
 		if (isPreview && p.get('etat') === 'reparation') this.repairing = true;
 		if (isPreview && p.get('etat') === 'raz') this.resetAsk = true;
 		if (isPreview && p.get('etat') === 'raz-fait') this.resetDone = true;
+		if (isPreview && p.get('journal') === '1') {
+			const t0 = Date.now() - 95_000;
+			[
+				'— Compte',
+				'— Java 21',
+				'— Minecraft 1.21.1',
+				'— Pack Turi Craft',
+				'packwiz : 3 fichiers à mettre à jour',
+				'réglages faits en jeu repris : distance, images',
+				'— Lancement du jeu',
+				'[1/7] Démarrage de Java (1.2 s)',
+				'[2/7] Mods trouvés (11.4 s)',
+				'[3/7] Fenêtre du jeu (20.3 s)',
+				'pilote graphique lent : D3D12 (Qualcomm(R) Adreno(TM) X1-85 GPU)',
+				'[4/7] Construction des mods (21.0 s)',
+				'ERREUR : Le jeu s’est arrêté pendant le chargement (code 1).'
+			].forEach((text, i) => this.logs.push({ t: t0 + i * 7000, text, kind: kindOf(text) }));
+		}
 
 		this.refreshOverview().then(() => this.refreshPresets());
 		const refreshServer = () => api.serverStatus().then((s) => (this.server = s));

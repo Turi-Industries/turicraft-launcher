@@ -260,6 +260,8 @@ const MILESTONES: &[(&str, &str)] = &[
     ("textures/atlas/blocks.png-atlas", "Textures"),
     ("resource reload: FINISHED", "Menu"),
 ];
+/// Jalon où la fenêtre du jeu s'ouvre.
+pub const GAME_WINDOW_MILESTONE: usize = 2;
 
 /// Ligne de commande complète : arguments JVM (jusqu'à la classe principale
 /// comprise) et arguments du jeu.
@@ -506,6 +508,12 @@ mod tests_reglages_en_jeu {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn jalon_de_la_fenetre_du_jeu() {
+        // Le launcher reprend la main à ce jalon (lib.rs, TauriReporter).
+        assert_eq!(super::MILESTONES[super::GAME_WINDOW_MILESTONE].1, "Fenêtre du jeu");
+    }
+
     #[test]
     fn fenetre_puis_plein_ecran() {
         let dir = std::env::temp_dir().join(format!("turicraft-fen-{}", std::process::id()));

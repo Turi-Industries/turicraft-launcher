@@ -6,6 +6,7 @@
 // L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
 // &etat=repos|prep|lancement|jeu|crash|pilote|integree|reparation|repare|raz|raz-fait|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
+// &journal=1 (journal rempli) &dossiers=1 (menu Dossiers ouvert) &angle=35 (« Jouer » figé sous cet angle)
 
 import type { LauncherEvent } from './api';
 

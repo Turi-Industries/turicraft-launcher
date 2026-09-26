@@ -53,6 +53,9 @@ struct AppState {
 struct TauriReporter {
     app: AppHandle,
     behavior: String,
+    /// Le launcher avait la main quand le jeu a démarré : il la reprend
+    /// quand la fenêtre du jeu s'ouvre (jalon « Fenêtre du jeu »).
+    had_focus: std::sync::atomic::AtomicBool,
 }
 
 impl TauriReporter {
@@ -66,17 +69,41 @@ impl TauriReporter {
     }
 }
 
+/// Pendant le démarrage du jeu, le launcher reste devant la fenêtre de
+/// Minecraft (progression, mini-jeu) ; il la laisse passer une fois le jeu au
+/// menu, s'il s'arrête ou s'il échoue. Sans effet sous Wayland (GTK n'y peut
+/// rien), le reste marche pareil.
+fn keep_on_top(app: &AppHandle, on: bool) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_always_on_top(on);
+    }
+}
+
 impl Reporter for TauriReporter {
     fn send(&self, event: Event) {
         match &event {
+            Event::Stage { id, .. } if id == "launch" => {
+                if let Some(w) = self.window() {
+                    self.had_focus.store(w.is_focused().unwrap_or(false), std::sync::atomic::Ordering::Relaxed);
+                }
+                keep_on_top(&self.app, true);
+            }
             Event::Progress { done, total } if *total > 0 => {
                 self.taskbar(ProgressBarStatus::Normal, Some(done * 100 / total))
             }
             Event::Milestone { index, count, .. } => {
-                self.taskbar(ProgressBarStatus::Normal, Some(((index + 1) * 100 / count) as u64))
+                self.taskbar(ProgressBarStatus::Normal, Some(((index + 1) * 100 / count) as u64));
+                // La fenêtre du jeu vient de s'ouvrir et a pris la main : le
+                // launcher la reprend, si c'est lui qui l'avait.
+                if *index == launch::GAME_WINDOW_MILESTONE && self.had_focus.load(std::sync::atomic::Ordering::Relaxed) {
+                    if let Some(w) = self.window() {
+                        let _ = w.set_focus();
+                    }
+                }
             }
             Event::GameReady { .. } => {
                 self.taskbar(ProgressBarStatus::None, None);
+                keep_on_top(&self.app, false);
                 if let Some(w) = self.window() {
                     match self.behavior.as_str() {
                         "garder" => {}
@@ -91,6 +118,7 @@ impl Reporter for TauriReporter {
             }
             Event::GameExited { code, .. } => {
                 self.taskbar(ProgressBarStatus::None, None);
+                keep_on_top(&self.app, false);
                 // « Fermer » : on quitte avec le jeu, sauf s'il a planté —
                 // le joueur doit voir le rapport.
                 if self.behavior == "fermer" && *code == Some(0) {
@@ -451,7 +479,7 @@ fn repair(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     forget_install_state(&state.paths).map_err(|e| e.to_string())?;
     let st = state.inner().clone();
     *task = Some(tauri::async_runtime::spawn(async move {
-        let reporter = TauriReporter { app: app.clone(), behavior: "garder".into() };
+        let reporter = TauriReporter { app: app.clone(), behavior: "garder".into(), had_focus: Default::default() };
         net::set_deep_verify(true);
         let result = repair_inner(&st, &reporter).await;
         net::set_deep_verify(false);
@@ -580,14 +608,30 @@ mod tests_remise_a_zero {
     }
 }
 
+/// Redémarre le launcher (après « Tout remettre à zéro » : il repart de
+/// ses réglages d'installation, comme à la première ouverture).
+#[tauri::command]
+fn restart(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    if state.task.lock().unwrap().as_ref().is_some_and(|t| !t.inner().is_finished()) {
+        return Err("Ferme d’abord le jeu (ou attends la fin de la préparation).".into());
+    }
+    app.restart();
+}
+
 #[tauri::command]
 fn open_folder(app: AppHandle, state: State<'_, Arc<AppState>>, which: String) -> CmdResult<()> {
     let game = state.paths.instance();
     let path = match which.as_str() {
+        "instance" => game,
         "logs" => game.join("logs"),
         "crash" => game.join("crash-reports"),
         "screenshots" => game.join("screenshots"),
-        _ => game,
+        "saves" => game.join("saves"),
+        // Schémas de Create (table à schémas, canon à schémas).
+        "schematics" => game.join("schematics"),
+        "resourcepacks" => game.join("resourcepacks"),
+        "shaderpacks" => game.join("shaderpacks"),
+        _ => return Err(format!("dossier inconnu : {which}")),
     };
     std::fs::create_dir_all(&path).ok();
     app.opener().open_path(path.display().to_string(), None::<&str>).map_err(|e| e.to_string())
@@ -613,8 +657,9 @@ fn play(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     let behavior = st.settings.lock().unwrap().launcher_behavior.clone();
     let screen = game_screen(&app);
     *task = Some(tauri::async_runtime::spawn(async move {
-        let reporter = TauriReporter { app: app.clone(), behavior };
+        let reporter = TauriReporter { app: app.clone(), behavior, had_focus: Default::default() };
         if let Err(e) = play_inner(&st, &reporter, screen).await {
+            keep_on_top(&app, false);
             reporter.taskbar(ProgressBarStatus::Error, None);
             let _ = app.emit("launcher-error", format!("{e:#}"));
         }
@@ -630,6 +675,7 @@ fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
     }
     // Réparation interrompue : la tâche n'est pas allée jusqu'à le remettre.
     net::set_deep_verify(false);
+    keep_on_top(&app, false);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_progress_bar(ProgressBarState { status: Some(ProgressBarStatus::None), progress: None });
     }
@@ -773,6 +819,7 @@ pub fn run() {
             skin,
             repair,
             reset_settings,
+            restart,
             open_folder,
             open_url,
             play,

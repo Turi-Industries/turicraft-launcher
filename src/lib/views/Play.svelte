@@ -1,15 +1,74 @@
 <script lang="ts">
-	import { api, go } from '$lib/api';
+	import { api, go, FOLDERS } from '$lib/api';
+	import { isPreview } from '$lib/preview';
 	import { L } from '$lib/state.svelte';
+	import Snake from './Snake.svelte';
 
 	const preset = $derived(L.pv ? L.pv.file.presets[L.pv.resolved.preset] : null);
 	const serverUp = $derived(!!L.server?.online && (L.server?.max_players ?? 0) > 0);
 	const date = (d: string) =>
 		new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+
+	/** Snake pendant la préparation et le démarrage, fermé quand le jeu est prêt. */
+	let snakeHidden = $state(false);
+	const waiting = $derived(L.running && !L.inGame && !L.repairing);
+
+	/** Menu « Dossiers » du bas de l'écran. */
+	let folders = $state(isPreview && new URLSearchParams(location.search).get('dossiers') === '1');
+	function closeFolders(e: MouseEvent | KeyboardEvent) {
+		if (e instanceof KeyboardEvent ? e.key === 'Escape' : !(e.target as Element).closest('.folders')) folders = false;
+	}
+
+	// « Jouer » en relief, qui tourne sur lui-même comme une pièce. Dessiné
+	// image par image (largeur selon l'angle, tranche en ombres) plutôt qu'en
+	// CSS 3D : WebKitGTK sans composition aplatit « preserve-3d » et montre
+	// la face arrière en miroir (26/09). Ici, rendu identique partout.
+	let spin = $state<HTMLSpanElement | null>(null);
+	/** Aperçu (&angle=…) : le texte figé sous cet angle, pour les captures. */
+	const angle = isPreview ? new URLSearchParams(location.search).get('angle') : null;
+	const TURN_MS = 5000;
+	const DEPTH_PX = 6;
+
+	function paint(el: HTMLElement, deg: number) {
+		const r = (deg * Math.PI) / 180;
+		const cos = Math.cos(r);
+		const sin = Math.sin(r);
+		// De profil, une fine tranche plutôt que rien.
+		const sx = Math.max(Math.abs(cos), 0.07);
+		const layers = [];
+		for (let k = 1; k <= DEPTH_PX; k++) layers.push(`${((-sin * k) / sx).toFixed(2)}px 0 0 var(--depth)`);
+		layers.push('0 2px 0 #111');
+		el.style.transform = `scaleX(${sx.toFixed(3)})`;
+		el.style.textShadow = layers.join(', ');
+	}
+
+	$effect(() => {
+		const el = spin;
+		if (!el) return;
+		if (angle !== null) return paint(el, Number(angle));
+		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		const t0 = performance.now();
+		let raf = requestAnimationFrame(function frame(now) {
+			paint(el, (((now - t0) / TURN_MS) * 360) % 360);
+			raf = requestAnimationFrame(frame);
+		});
+		return () => cancelAnimationFrame(raf);
+	});
 </script>
+
+<svelte:window onclick={folders ? closeFolders : undefined} onkeydown={folders ? closeFolders : undefined} />
 
 <div class="play">
 	<div class="scroll">
+		<!-- En premier : pendant l'attente, c'est lui qu'on regarde. -->
+		{#if waiting}
+			{#if snakeHidden}
+				<button class="link snake-open" onclick={() => (snakeHidden = false)}>Jouer à Snake en attendant</button>
+			{:else}
+				<Snake onhide={() => (snakeHidden = true)} />
+			{/if}
+		{/if}
+
 		<section class="hero">
 			<div class="hero-text">
 				<h1>Turi Craft</h1>
@@ -167,11 +226,34 @@
 			<button class="mc-btn danger" onclick={() => L.stop()}>{L.inGame || L.milestone ? 'Arrêter le jeu' : 'Annuler'}</button>
 		{:else}
 			<div class="summary">
-				{#if preset}
-					<button class="chip" onclick={() => (L.view = 'qualite')} title="Changer la qualité">
-						Qualité <strong>{L.s?.preset === 'personnalise' ? 'Avancée' : preset.label}</strong> · {L.pv ? go(L.pv.resolved.memory_gb) : ''}
-					</button>
-				{/if}
+				<div class="chips">
+					{#if preset}
+						<button class="chip" onclick={() => (L.view = 'qualite')} title="Changer la qualité">
+							Qualité <strong>{L.s?.preset === 'personnalise' ? 'Avancée' : preset.label}</strong> · {L.pv ? go(L.pv.resolved.memory_gb) : ''}
+						</button>
+					{/if}
+					<div class="folders">
+						<button class="chip" class:open={folders} onclick={() => (folders = !folders)} aria-expanded={folders}>
+							<svg viewBox="0 0 12 10" width="12" height="10" aria-hidden="true"
+								><path d="M0 1h4l1 1h7v8H0z" fill="currentColor" /><path d="M1 4h10v5H1z" fill="#000" opacity=".35" /></svg
+							>
+							Dossiers
+						</button>
+						{#if folders}
+							<div class="menu" role="menu">
+								{#each FOLDERS as f (f.id)}
+									<button
+										role="menuitem"
+										onclick={() => {
+											folders = false;
+											api.openFolder(f.id);
+										}}><span>{f.label}</span><span class="faint">{f.hint}</span></button
+									>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
 				<div class="faint">
 					{#if !L.playerName}Avec ton compte Microsoft.
 					{:else if L.s?.join_server}Rejoint directement le serveur.
@@ -182,7 +264,9 @@
 				</div>
 			</div>
 			{#if L.playerName}
-				<button class="mc-btn play-btn" onclick={() => L.play()} disabled={!L.canPlay}>Jouer</button>
+				<button class="mc-btn play-btn" onclick={() => L.play()} disabled={!L.canPlay} aria-label="Jouer">
+					<span class="spin" aria-hidden="true" bind:this={spin}>Jouer</span>
+				</button>
 			{:else}
 				<!-- Sans compte, l'action principale est de se connecter. -->
 				<button class="mc-btn play-btn login" onclick={() => L.login()} disabled={!!L.loginMode}>Se connecter</button>
@@ -375,14 +459,26 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
+	.chips {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 4px;
+	}
 	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		background: none;
 		border: 1px solid var(--line-strong);
 		color: var(--text-dim);
 		padding: 4px 10px;
 		cursor: pointer;
 		white-space: nowrap;
-		margin-bottom: 4px;
+	}
+	.chip.open {
+		border-color: var(--yellow);
+		color: var(--text);
 	}
 	.chip strong {
 		color: var(--text);
@@ -404,6 +500,65 @@
 	}
 	.play-btn.login {
 		font-size: 16px;
+	}
+	/* Texte 3D qui tourne : transformation et ombres posées par paint(). */
+	.play-btn:not(.login) {
+		--depth: #2b2b2b;
+		text-shadow: none;
+	}
+	.play-btn:hover:not(:disabled) {
+		--depth: #7a6412;
+	}
+	.play-btn:disabled {
+		--depth: #1c1c1c;
+	}
+	.spin {
+		display: inline-block;
+		will-change: transform;
+	}
+
+	.folders {
+		position: relative;
+	}
+	.menu {
+		position: absolute;
+		left: 0;
+		bottom: calc(100% + 6px);
+		z-index: 10;
+		min-width: 260px;
+		display: flex;
+		flex-direction: column;
+		padding: 4px;
+		background: #1b1c20;
+		border: 2px solid #000;
+		box-shadow:
+			inset 0 0 0 1px var(--line-strong),
+			0 8px 24px rgba(0, 0, 0, 0.6);
+	}
+	.menu button {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 16px;
+		padding: 7px 10px;
+		background: none;
+		border: none;
+		text-align: left;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.menu button:hover,
+	.menu button:focus-visible {
+		background: var(--btn);
+		color: var(--yellow-soft);
+		outline: none;
+	}
+	.menu button:hover .faint {
+		color: #d6d6d6;
+	}
+	.snake-open {
+		align-self: flex-start;
+		font-size: 13px;
 	}
 	.progress .line {
 		display: flex;

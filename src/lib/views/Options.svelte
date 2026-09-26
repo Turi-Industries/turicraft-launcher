@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { api, type Behavior } from '$lib/api';
+	import { api, FOLDERS, type Behavior } from '$lib/api';
 	import { L } from '$lib/state.svelte';
 
 	const BEHAVIORS: { id: Behavior; label: string; hint: string }[] = [
@@ -77,8 +77,9 @@
 	<div class="panel">
 		<div class="section-title">Dossiers</div>
 		<div class="row">
-			<button class="mc-btn small" onclick={() => api.openFolder('instance')}>Dossier du jeu</button>
-			<button class="mc-btn small" onclick={() => api.openFolder('screenshots')}>Captures d’écran</button>
+			{#each FOLDERS as f (f.id)}
+				<button class="mc-btn small" title={f.hint} onclick={() => api.openFolder(f.id)}>{f.label}</button>
+			{/each}
 			<button class="mc-btn small" onclick={() => api.openFolder('logs')}>Journaux</button>
 		</div>
 	</div>
@@ -129,8 +130,8 @@
 			<div class="grow">
 				<strong>Tout remettre à zéro</strong>
 				<div class="hint">
-					{#if L.resetDone}C’est fait : au prochain lancement, le jeu repart des réglages du pack.
-					{:else if L.resetAsk}Réglages du launcher, options du jeu, touches et configs des mods reviennent à ceux du pack. Ton compte, tes mondes, captures et cartes sont gardés.
+					{#if L.resetDone}C’est fait. Le launcher redémarre…
+					{:else if L.resetAsk}Réglages du launcher, options du jeu, touches et configs des mods reviennent à ceux du pack. Ton compte, tes mondes, captures et cartes sont gardés. Le launcher redémarre ensuite.
 					{:else}Réglages du launcher et du jeu comme à l’installation. Ton compte reste connecté.{/if}
 				</div>
 				{#if L.resetError}
@@ -145,7 +146,7 @@
 			{:else}
 				<button
 					class="mc-btn small"
-					disabled={L.running || !!L.updating}
+					disabled={L.running || !!L.updating || L.resetDone}
 					onclick={() => {
 						L.resetDone = false;
 						L.resetError = null;
