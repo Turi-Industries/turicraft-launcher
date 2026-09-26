@@ -29,14 +29,16 @@
 <svelte:window onclick={folders ? closeFolders : undefined} onkeydown={folders ? closeFolders : undefined} />
 
 <div class="play">
+	<!-- Pendant l'attente, Snake prend toute la zone au-dessus de la barre de
+	     chargement ; « Masquer » rend l'écran habituel. -->
+	{#if waiting && !snakeHidden}
+		<div class="scroll snake-full">
+			<Snake onhide={() => (snakeHidden = true)} />
+		</div>
+	{:else}
 	<div class="scroll">
-		<!-- En premier : pendant l'attente, c'est lui qu'on regarde. -->
 		{#if waiting}
-			{#if snakeHidden}
-				<button class="link snake-open" onclick={() => (snakeHidden = false)}>Jouer à Snake en attendant</button>
-			{:else}
-				<Snake onhide={() => (snakeHidden = true)} />
-			{/if}
+			<button class="link snake-open" onclick={() => (snakeHidden = false)}>Jouer à Snake en attendant</button>
 		{/if}
 
 		<section class="hero">
@@ -174,6 +176,7 @@
 			</section>
 		{/if}
 	</div>
+	{/if}
 
 	<footer class="dock">
 		{#if L.running}
@@ -533,6 +536,9 @@
 	}
 	.menu button:hover .faint {
 		color: #d6d6d6;
+	}
+	.snake-full {
+		overflow: hidden;
 	}
 	.snake-open {
 		align-self: flex-start;

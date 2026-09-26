@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
+
 	// Snake, pour patienter pendant la préparation et le démarrage du jeu.
-	// Affiché par Play.svelte tant que le jeu n'est pas au menu : il disparaît
-	// tout seul quand le jeu est prêt. Flèches, ZQSD ou WASD (touches
+	// Affiché par Play.svelte tant que le jeu n'est pas au menu, sur toute la
+	// zone au-dessus de la barre de chargement : il disparaît tout seul quand
+	// le jeu est prêt. Flèches, ZQSD ou WASD (touches
 	// physiques : e.code), Espace pour commencer ou reprendre.
 
 	type P = { x: number; y: number };
@@ -9,12 +12,14 @@
 
 	const W = 24;
 	const H = 13;
-	const CELL = 16;
 	const BEST_KEY = 'turicraft.snake.best';
 
 	let { onhide }: { onhide: () => void } = $props();
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
+	let board = $state<HTMLDivElement | null>(null);
+	/** Taille d'une case en pixels : la plus grande qui tient, entière (net). */
+	let cell = $state(16);
 	let phase = $state<Phase>('idle');
 	let score = $state(0);
 	let best = $state(readBest());
@@ -139,6 +144,10 @@
 	function draw() {
 		const c = canvas?.getContext('2d');
 		if (!c) return;
+		const CELL = cell;
+		const u = CELL / 16; // les détails (pomme, yeux) sont dessinés pour 16 px
+		const px = (x: number, y: number, w: number, h: number) =>
+			c.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
 		c.fillStyle = '#07080a';
 		c.fillRect(0, 0, W * CELL, H * CELL);
 		c.fillStyle = '#0d0f12';
@@ -148,41 +157,59 @@
 		const fx = food.x * CELL;
 		const fy = food.y * CELL;
 		c.fillStyle = '#c62828';
-		c.fillRect(fx + 3, fy + 5, 10, 9);
+		px(fx + 3 * u, fy + 5 * u, 10 * u, 9 * u);
 		c.fillStyle = '#ff5a4f';
-		c.fillRect(fx + 4, fy + 6, 3, 3);
+		px(fx + 4 * u, fy + 6 * u, 3 * u, 3 * u);
 		c.fillStyle = '#5b3a1e';
-		c.fillRect(fx + 7, fy + 2, 2, 3);
+		px(fx + 7 * u, fy + 2 * u, 2 * u, 3 * u);
 		c.fillStyle = '#4caf50';
-		c.fillRect(fx + 9, fy + 2, 3, 2);
+		px(fx + 9 * u, fy + 2 * u, 3 * u, 2 * u);
 
 		snake.forEach((s, i) => {
 			const x = s.x * CELL;
 			const y = s.y * CELL;
+			const b = Math.max(1, Math.round(u));
 			c.fillStyle = '#000';
 			c.fillRect(x, y, CELL, CELL);
 			c.fillStyle = i === 0 ? '#ffe066' : i % 2 ? '#f5c518' : '#e0b40f';
-			c.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+			c.fillRect(x + b, y + b, CELL - 2 * b, CELL - 2 * b);
 			c.fillStyle = 'rgba(255,255,255,0.25)';
-			c.fillRect(x + 1, y + 1, CELL - 2, 2);
+			c.fillRect(x + b, y + b, CELL - 2 * b, 2 * b);
 		});
 		// Yeux, tournés vers l'avant.
 		if (snake.length) {
 			const h = snake[0];
-			const cx = h.x * CELL + CELL / 2 + dir.x * 3;
-			const cy = h.y * CELL + CELL / 2 + dir.y * 3;
+			const cx = h.x * CELL + CELL / 2 + dir.x * 3 * u;
+			const cy = h.y * CELL + CELL / 2 + dir.y * 3 * u;
 			c.fillStyle = '#000';
-			const ox = dir.y !== 0 ? 3 : 0;
-			const oy = dir.x !== 0 ? 3 : 0;
-			c.fillRect(cx - ox - 1, cy - oy - 1, 2, 2);
-			c.fillRect(cx + ox - 1, cy + oy - 1, 2, 2);
+			const ox = dir.y !== 0 ? 3 * u : 0;
+			const oy = dir.x !== 0 ? 3 * u : 0;
+			px(cx - ox - u, cy - oy - u, 2 * u, 2 * u);
+			px(cx + ox - u, cy + oy - u, 2 * u, 2 * u);
 		}
 	}
 
+	// La plus grande case entière qui tient dans la zone ; redessin à chaque
+	// changement de taille de la fenêtre.
+	$effect(() => {
+		const el = board;
+		if (!el) return;
+		const ro = new ResizeObserver(() => {
+			cell = Math.max(8, Math.floor(Math.min((el.clientWidth - 4) / W, (el.clientHeight - 4) / H)));
+			requestAnimationFrame(draw);
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+
 	$effect(() => {
 		if (!canvas) return;
-		reset();
-		draw();
+		// Sans suivi : draw() lit la taille des cases, et un redimensionnement
+		// ne doit pas relancer la partie.
+		untrack(() => {
+			reset();
+			draw();
+		});
 		const blur = () => pause(); // le jeu a pris la main : on ne perd pas la partie
 		window.addEventListener('keydown', onKey);
 		window.addEventListener('blur', blur);
@@ -203,8 +230,9 @@
 			<button class="link" onclick={onhide}>Masquer</button>
 		</div>
 	</div>
+	<div class="area" bind:this={board}>
 	<div class="board">
-		<canvas bind:this={canvas} width={W * CELL} height={H * CELL}></canvas>
+		<canvas bind:this={canvas} width={W * cell} height={H * cell}></canvas>
 		{#if phase !== 'run'}
 			<button class="overlay" onclick={start}>
 				{#if phase === 'over'}
@@ -220,11 +248,29 @@
 			</button>
 		{/if}
 	</div>
+	</div>
 </section>
 
 <style>
 	.snake {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
 		padding: 12px 14px 14px;
+	}
+	.head .section-title {
+		margin-bottom: 0;
+	}
+	/* Toute la place restante ; le plateau s'y centre. */
+	.area {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
 	}
 	.head {
 		display: flex;
@@ -246,15 +292,11 @@
 	.board {
 		position: relative;
 		width: fit-content;
-		max-width: 100%;
-		margin: 0 auto;
 		border: 2px solid #000;
 		box-shadow: 0 0 0 1px var(--line-strong);
 	}
 	canvas {
 		display: block;
-		max-width: 100%;
-		image-rendering: pixelated;
 	}
 	.overlay {
 		position: absolute;
@@ -271,7 +313,7 @@
 	}
 	.overlay strong {
 		font-family: var(--pixel);
-		font-size: 18px;
+		font-size: 22px;
 		font-weight: 400;
 		color: var(--yellow);
 		text-shadow: 2px 2px 0 #000;
