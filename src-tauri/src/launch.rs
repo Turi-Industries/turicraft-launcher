@@ -184,13 +184,29 @@ fn wants_fullscreen(file: &presets::PresetsFile, resolved: &Resolved) -> Option<
 /// laissée par le joueur : `game_window_size`) ; le plein écran vient après le
 /// chargement (kubejs/client_scripts/40_plein_ecran.js), passé au script par
 /// config/turicraft/launch.json.
+///
+/// Deux endroits disent « plein écran » : options.txt, et Cubes Without
+/// Borders, qui garde son propre état (`fullscreenMode` : OFF, ON,
+/// BORDERLESS). Quitté en plein écran, CWB repassait la fenêtre en plein écran
+/// DÈS SA CRÉATION, avant le chargement (écran noir en plein écran, fenêtre
+/// impossible à cacher : Jean, 26/09). Les deux sont remis en fenêtré ; le
+/// reste de la config de CWB (écran préféré, type de plein écran) est gardé.
 fn windowed_until_loaded(game: &Path, wants: Option<bool>) -> Result<()> {
     let options = game.join("options.txt");
     let text = std::fs::read_to_string(&options).unwrap_or_default();
-    let wants_fullscreen = wants.unwrap_or_else(|| text.lines().any(|l| l.trim() == "fullscreen:true"));
+    let cwb_path = game.join("config/cubes_without_borders.json");
+    let mut cwb: Option<serde_json::Value> = std::fs::read_to_string(&cwb_path).ok().and_then(|t| serde_json::from_str(&t).ok());
+    let cwb_fullscreen = cwb.as_ref().and_then(|v| v.get("fullscreenMode")?.as_str().map(|m| m != "OFF")).unwrap_or(false);
+    let wants_fullscreen = wants.unwrap_or_else(|| cwb_fullscreen || text.lines().any(|l| l.trim() == "fullscreen:true"));
     let mut lines: Vec<String> = text.lines().filter(|l| !l.starts_with("fullscreen:")).map(String::from).collect();
     lines.push("fullscreen:false".into());
     std::fs::write(&options, lines.join("\n") + "\n")?;
+    if let Some(serde_json::Value::Object(map)) = cwb.as_mut() {
+        if map.get("fullscreenMode").and_then(|m| m.as_str()) != Some("OFF") {
+            map.insert("fullscreenMode".into(), "OFF".into());
+            std::fs::write(&cwb_path, serde_json::to_string_pretty(map)?)?;
+        }
+    }
     let dir = game.join("config/turicraft");
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("launch.json"), serde_json::json!({ "fullscreen": wants_fullscreen }).to_string())?;
@@ -506,6 +522,26 @@ mod tests {
         super::windowed_until_loaded(&dir, Some(true)).unwrap();
         let launch = std::fs::read_to_string(dir.join("config/turicraft/launch.json")).unwrap();
         assert_eq!(launch, r#"{"fullscreen":true}"#);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Cubes Without Borders garde son propre plein écran : remis à OFF au
+    /// lancement, le reste de sa config gardé ; il compte comme « plein écran
+    /// voulu » quand le launcher n'a pas d'option (Jean, 26/09).
+    #[test]
+    fn cubes_without_borders_en_fenetre_au_lancement() {
+        let dir = std::env::temp_dir().join(format!("turicraft-cwb-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("config")).unwrap();
+        std::fs::write(dir.join("options.txt"), "fullscreen:false\n").unwrap();
+        let cwb = dir.join("config/cubes_without_borders.json");
+        std::fs::write(&cwb, r#"{"fullscreenMode":"BORDERLESS","preferredFullscreenMode":"BORDERLESS","preferredMonitor":"0,0,2560,1600"}"#).unwrap();
+        super::windowed_until_loaded(&dir, None).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cwb).unwrap()).unwrap();
+        assert_eq!(v["fullscreenMode"], "OFF");
+        assert_eq!(v["preferredFullscreenMode"], "BORDERLESS");
+        assert_eq!(v["preferredMonitor"], "0,0,2560,1600");
+        let launch: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("config/turicraft/launch.json")).unwrap()).unwrap();
+        assert_eq!(launch["fullscreen"], true, "plein écran repris de CWB");
         std::fs::remove_dir_all(&dir).ok();
     }
 
