@@ -170,7 +170,7 @@ set = { enableShaders = "true" }
 format = "properties"
 set = { enableShaders = "false" }
 
-# Quel pack de shaders : `[choices]` (launcher 0.1.13+). Écrit APRÈS les
+# Quel pack de shaders : `[choices]` (launcher 0.2.0+). Écrit APRÈS les
 # interrupteurs. « Autre » n'écrit rien : un pack ajouté par le joueur dans
 # shaderpacks/ et choisi en jeu est repris par le launcher, qui n'y touche
 # plus, même quand ce fichier ou le pack changent.

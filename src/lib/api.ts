@@ -91,7 +91,7 @@ export interface PresetsView {
 		>;
 		group_info: Record<string, { label: string; description: string }>;
 		sliders: Record<string, Slider>;
-		/** Absent d'un presets.toml d'avant le launcher 0.1.13. */
+		/** Absent d’un presets.toml d’avant le launcher 0.2.0. */
 		choices?: Record<string, Choice>;
 		presets: Record<string, Preset>;
 	};
