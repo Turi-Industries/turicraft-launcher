@@ -74,7 +74,7 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
         r.log("réglages inchangés : ceux faits en jeu sont gardés");
     }
     let once_applied = presets::apply_once(paths, &file, (settings.once_applied, settings.once_files_applied), r)?;
-    early_window(&paths.instance(), None)?;
+    early_window_off(&paths.instance())?;
     windowed_until_loaded(&paths.instance(), wants_fullscreen(&file, &resolved))?;
     Ok(Prepared { java, profile, resolved, applied, once_applied, window_size: None })
 }
@@ -219,26 +219,16 @@ pub fn game_window_size(game: &Path, screen: (u32, u32)) -> (u32, u32) {
     (w.max(854.0).min(sw).round() as u32, h.max(480.0).min(sh).round() as u32)
 }
 
-/// Fenêtre de chargement NeoForge, habillée par Drippy Early Loading Module
-/// (fond noir, logo Mojang, barre jaune, logo Turi Industries en bas à
-/// gauche) : sans elle, la fenêtre du jeu restait noire ~20 s pendant la
-/// construction des mods (Jean, 26/09 ; revient sur la décision 0007 § 5).
-/// Pas sur macOS : le module y dessine en OpenGL ancien, refusé par le profil
-/// Core de macOS (plantage au démarrage) ; son correctif exige Drippy 3.1.2.
-/// Sa taille : celle de la fenêtre du jeu (`--width/--height`), que le module
-/// ne lit pas — il lit `earlyWindowWidth/Height`.
-const EARLY_WINDOW: bool = !cfg!(target_os = "macos");
-
-fn early_window(game: &Path, size: Option<(u32, u32)>) -> Result<()> {
+/// Plus de fenêtre de chargement NeoForge : le launcher montre la progression
+/// (décision 0007 § 5). Posé par le launcher, pas par le pack : sous Prism,
+/// les joueurs n'auraient aucun retour pendant une à deux minutes.
+/// Vérifié le 24/09 hors bac à sable : menu atteint, Ixeris compris.
+fn early_window_off(game: &Path) -> Result<()> {
     let p = game.join("config/fml.toml");
     std::fs::create_dir_all(p.parent().unwrap())?;
     let text = std::fs::read_to_string(&p).unwrap_or_default();
     let mut doc: toml_edit::DocumentMut = text.parse().unwrap_or_default();
-    doc["earlyWindowControl"] = toml_edit::value(EARLY_WINDOW);
-    if let Some((w, h)) = size {
-        doc["earlyWindowWidth"] = toml_edit::value(w as i64);
-        doc["earlyWindowHeight"] = toml_edit::value(h as i64);
-    }
+    doc["earlyWindowControl"] = toml_edit::value(false);
     std::fs::write(&p, doc.to_string())?;
     Ok(())
 }
@@ -299,7 +289,6 @@ pub async fn launch(
 ) -> Result<Outcome> {
     r.stage("launch", "Lancement du jeu");
     let game = paths.instance();
-    early_window(&game, prepared.window_size)?;
     let (jvm, game_args) = command_line(paths, settings, session, prepared)?;
 
     let started_at = SystemTime::now();
@@ -376,21 +365,6 @@ pub async fn launch(
 #[cfg(test)]
 mod tests_reglages_en_jeu {
     use super::*;
-
-    /// La fenêtre de chargement prend la taille de la fenêtre du jeu ; les
-    /// autres réglages de fml.toml restent.
-    #[test]
-    fn fenetre_de_chargement() {
-        let dir = std::env::temp_dir().join(format!("turicraft-fml-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("config")).unwrap();
-        std::fs::write(dir.join("config/fml.toml"), "earlyWindowControl = false\nmaxThreads = 1\nearlyWindowWidth = 854\n").unwrap();
-        early_window(&dir, Some((1109, 624))).unwrap();
-        let t: toml::Table = std::fs::read_to_string(dir.join("config/fml.toml")).unwrap().parse().unwrap();
-        assert_eq!(t["earlyWindowControl"].as_bool(), Some(EARLY_WINDOW));
-        assert_eq!((t["earlyWindowWidth"].as_integer(), t["earlyWindowHeight"].as_integer()), (Some(1109), Some(624)));
-        assert_eq!(t["maxThreads"].as_integer(), Some(1));
-        std::fs::remove_dir_all(&dir).ok();
-    }
 
     /// Distance et synchro changées EN JEU : reprises par le launcher, qui ne
     /// réécrit plus rien ; mais si le joueur change un réglage dans le
