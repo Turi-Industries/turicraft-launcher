@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { api, type SnakeEntry } from '$lib/api';
+	import { L } from '$lib/state.svelte';
 
 	// Snake, pour patienter pendant la préparation et le démarrage du jeu.
 	// Affiché par Play.svelte tant que le jeu n'est pas au menu, sur toute la
@@ -15,6 +17,39 @@
 	const BEST_KEY = 'turicraft.snake.best';
 
 	let { onhide }: { onhide: () => void } = $props();
+
+	// ─── Classement partagé (pseudos Minecraft, vérifiés par Mojang) ────────
+	let ranking = $state<SnakeEntry[] | null>(null);
+	let rankingError = $state<string | null>(null);
+	/** Envoi du record : en cours, fait (place), refusé. */
+	let sent = $state<{ state: 'sending' } | { state: 'done'; rank: number; best: number } | { state: 'error'; message: string } | null>(
+		null
+	);
+
+	function loadRanking() {
+		api.snakeTop()
+			.then((top) => {
+				ranking = top;
+				rankingError = null;
+			})
+			.catch((e) => (rankingError = String(e)));
+	}
+
+	/** Un record personnel part au classement ; le serveur garde le meilleur. */
+	function submit(s: number) {
+		if (!L.s?.account) return; // sans compte Microsoft, rien à prouver
+		sent = { state: 'sending' };
+		api.snakeSubmit(s)
+			.then((r) => {
+				ranking = r.top;
+				rankingError = null;
+				sent = { state: 'done', rank: r.rank, best: r.best };
+			})
+			.catch((e) => (sent = { state: 'error', message: String(e) }));
+	}
+
+	const me = $derived(L.playerName);
+	const medal = (i: number) => (i === 0 ? 'or' : i === 1 ? 'argent' : i === 2 ? 'bronze' : '');
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let board = $state<HTMLDivElement | null>(null);
@@ -78,6 +113,8 @@
 		const body = eats ? snake : snake.slice(0, -1);
 		if (head.x < 0 || head.y < 0 || head.x >= W || head.y >= H || body.some((s) => s.x === head.x && s.y === head.y)) {
 			phase = 'over';
+			// Record battu (ou égalé, pour une première fois) : on l'envoie.
+			if (score > 0 && score >= best) submit(score);
 			saveBest();
 			draw();
 			return;
@@ -209,6 +246,7 @@
 		untrack(() => {
 			reset();
 			draw();
+			loadRanking();
 		});
 		const blur = () => pause(); // le jeu a pris la main : on ne perd pas la partie
 		window.addEventListener('keydown', onKey);
@@ -230,6 +268,7 @@
 			<button class="link" onclick={onhide}>Masquer</button>
 		</div>
 	</div>
+	<div class="body">
 	<div class="area" bind:this={board}>
 	<div class="board">
 		<canvas bind:this={canvas} width={W * cell} height={H * cell}></canvas>
@@ -249,6 +288,35 @@
 		{/if}
 	</div>
 	</div>
+
+	<aside class="ranking">
+		<div class="rank-title">Classement</div>
+		{#if ranking === null && !rankingError}
+			<p class="faint">Chargement…</p>
+		{:else if rankingError && !ranking}
+			<p class="faint">Classement indisponible pour l’instant.</p>
+		{:else if ranking && !ranking.length}
+			<p class="faint">Personne encore : la première place est à prendre.</p>
+		{:else if ranking}
+			<ol>
+				{#each ranking as r, i (r.uuid)}
+					<li class:me={r.name === me}>
+						<span class="pos {medal(i)}">{i + 1}</span>
+						<span class="name" title={r.name}>{r.name}</span>
+						<span class="pts">{r.score}</span>
+					</li>
+				{/each}
+			</ol>
+		{/if}
+		<div class="sent">
+			{#if sent?.state === 'sending'}Envoi du record…
+			{:else if sent?.state === 'done'}Record enregistré : <strong>{sent.best}</strong>, {sent.rank === 1 ? '1re' : `${sent.rank}e`} place.
+			{:else if sent?.state === 'error'}<span class="bad">Record non envoyé : {sent.message}</span>
+			{:else if me}Bats ton record pour entrer au classement, en tant que <strong>{me}</strong>.
+			{/if}
+		</div>
+	</aside>
+	</div>
 </section>
 
 <style>
@@ -263,8 +331,15 @@
 	.head .section-title {
 		margin-bottom: 0;
 	}
+	.body {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		gap: 14px;
+	}
 	/* Toute la place restante ; le plateau s'y centre. */
 	.area {
+		min-width: 0;
 		flex: 1;
 		min-height: 0;
 		display: flex;
@@ -310,6 +385,98 @@
 		border: none;
 		cursor: pointer;
 		color: var(--text-dim);
+	}
+	.ranking {
+		flex: none;
+		width: 210px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-height: 0;
+		padding-left: 14px;
+		border-left: 1px solid var(--line);
+	}
+	.rank-title {
+		font-family: var(--pixel);
+		font-size: 13px;
+		color: var(--yellow);
+	}
+	.ranking p {
+		margin: 0;
+	}
+	ol {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		overflow: auto;
+		min-height: 0;
+	}
+	li {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 6px;
+		border-left: 3px solid transparent;
+		font-size: 13px;
+	}
+	li:nth-child(odd) {
+		background: rgba(255, 255, 255, 0.03);
+	}
+	li.me {
+		border-left-color: var(--yellow);
+		background: #1d1a0c;
+		color: var(--yellow-soft);
+	}
+	.pos {
+		flex: none;
+		width: 20px;
+		height: 20px;
+		display: grid;
+		place-items: center;
+		font-size: 11px;
+		font-weight: 700;
+		color: var(--text-dim);
+		background: #000;
+		border: 1px solid var(--line-strong);
+	}
+	.pos.or {
+		background: #f5c518;
+		border-color: #000;
+		color: #000;
+	}
+	.pos.argent {
+		background: #c8ccd4;
+		border-color: #000;
+		color: #000;
+	}
+	.pos.bronze {
+		background: #c7803e;
+		border-color: #000;
+		color: #000;
+	}
+	.name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.pts {
+		flex: none;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+	}
+	.sent {
+		margin-top: auto;
+		font-size: 12px;
+		color: var(--text-dim);
+		line-height: 1.4;
+	}
+	.sent strong {
+		color: var(--text);
+	}
+	.bad {
+		color: var(--red);
 	}
 	.overlay strong {
 		font-family: var(--pixel);

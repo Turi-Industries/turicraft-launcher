@@ -18,6 +18,7 @@ pub mod presets;
 pub mod progress;
 pub mod settings;
 pub mod skin;
+pub mod snake;
 pub mod updates;
 
 use std::sync::{Arc, Mutex};
@@ -45,6 +46,9 @@ struct AppState {
     /// Mise à jour du launcher téléchargée (« Plus tard ») : signature déjà
     /// vérifiée, installée à la fermeture du launcher.
     pending_update: Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
+    /// Session Minecraft du dernier « Jouer » (en mémoire seulement) : le
+    /// Snake s'en sert pour prouver le pseudo au classement.
+    session: Mutex<Option<auth::Session>>,
 }
 
 /// Envoie les événements du cœur à l'interface, et tient la fenêtre au courant :
@@ -637,6 +641,35 @@ fn open_folder(app: AppHandle, state: State<'_, Arc<AppState>>, which: String) -
     app.opener().open_path(path.display().to_string(), None::<&str>).map_err(|e| e.to_string())
 }
 
+/// Classement du Snake (les 10 meilleurs).
+#[tauri::command]
+async fn snake_top() -> CmdResult<Vec<snake::Entry>> {
+    snake::top(&settings::pack_url()).await.map_err(err)
+}
+
+/// Envoie un score au classement, au nom du compte connecté (vérifié par
+/// Mojang, voir snake.rs). Session du lancement en cours ; sinon, ou si
+/// Mojang la refuse (expirée), une session fraîche.
+#[tauri::command]
+async fn snake_submit(state: State<'_, Arc<AppState>>, score: u32) -> CmdResult<snake::Submitted> {
+    if settings::offline_name().is_some() {
+        return Err("mode hors ligne : pas de classement".into());
+    }
+    let pack_url = settings::pack_url();
+    let cached = state.session.lock().unwrap().clone();
+    if let Some(session) = cached {
+        match snake::submit(&pack_url, &session, score).await {
+            Ok(r) => return Ok(r),
+            Err(e) if e.downcast_ref::<snake::SessionRefused>().is_some() => {}
+            Err(e) => return Err(err(e)),
+        }
+    }
+    let client_id = settings::azure_client_id().ok_or("connexion Microsoft non configurée")?;
+    let session = auth::refresh(&client_id).await.map_err(err)?;
+    *state.session.lock().unwrap() = Some(session.clone());
+    snake::submit(&pack_url, &session, score).await.map_err(err)
+}
+
 #[tauri::command]
 fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
     if !url.starts_with("https://") {
@@ -703,6 +736,7 @@ async fn play_inner(state: &AppState, r: &dyn Reporter, screen: Option<(u32, u32
         (None, Some(client_id)) => auth::refresh(&client_id).await?,
         (None, None) => anyhow::bail!("connexion Microsoft non configurée"),
     };
+    *state.session.lock().unwrap() = Some(session.clone());
     // Première installation : ~3 Go. Mieux vaut le dire avant qu'après.
     if packwiz::installed_pack_version(&state.paths).is_none() {
         if let Some(free) = hardware::disk_free_gb(&state.paths.root) {
@@ -769,6 +803,7 @@ pub fn run() {
         task: Mutex::new(None),
         login: Mutex::new(None),
         pending_update: Mutex::new(None),
+        session: Mutex::new(None),
     });
     tauri::Builder::default()
         // Un second lancement du launcher ramène le premier au lieu d'en
@@ -822,6 +857,8 @@ pub fn run() {
             restart,
             open_folder,
             open_url,
+            snake_top,
+            snake_submit,
             play,
             stop
         ])

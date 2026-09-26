@@ -6,7 +6,7 @@
 // L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
 // &etat=repos|prep|lancement|jeu|crash|pilote|integree|reparation|repare|raz|raz-fait|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
-// &journal=1 (journal rempli) &dossiers=1 (menu Dossiers ouvert) &angle=35 (« Jouer » figé sous cet angle)
+// &classement=0 (classement du Snake injoignable) &journal=1 (journal rempli) &dossiers=1 (menu Dossiers ouvert) &angle=35 (« Jouer » figé sous cet angle)
 
 import type { LauncherEvent } from './api';
 
@@ -239,6 +239,21 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 				{ date: '2026-09-24', title: 'Le launcher Turi Craft arrive', body: 'Installation du jeu, des mods et des réglages en un clic, préréglages de qualité adaptés à ta machine, et connexion avec ton compte Microsoft.' },
 				{ date: '2026-09-24', title: 'Nouveaux menus', body: 'Menu principal et menu pause refaits.\nDans l’esprit de Minecraft.', url: 'https://discord.com/channels/1/2/3' }
 			];
+		case 'snake_top':
+		case 'snake_submit': {
+			const top = [
+				['Turi_Boss', 87],
+				['Pikachu_Fan', 64],
+				['CreateMaster', 51],
+				['Joueur_Turi', 38],
+				['Aeronaute', 30],
+				['Eevee42', 22],
+				['Steve', 17],
+				['Alex', 9]
+			].map(([name, score], i) => ({ name, uuid: `u${i}`, score, date: '2026-09-26' }));
+			if (p.get('classement') === '0') throw new Error('classement injoignable');
+			return cmd === 'snake_top' ? top : { top, rank: 4, best: 38 };
+		}
 		case 'login_start':
 			return { user_code: 'Y8SWJLX3', verification_uri: 'https://www.microsoft.com/link', expires_in: 900 };
 		case 'login_browser':

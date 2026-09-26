@@ -42,8 +42,9 @@ struct MsError {
     error_description: Option<String>,
 }
 
-/// Ce qu'il faut pour lancer le jeu. `access_token` ne sort jamais du launcher
-/// que vers la ligne de commande du jeu.
+/// Ce qu'il faut pour lancer le jeu. `access_token` ne sort du launcher que
+/// vers la ligne de commande du jeu et vers Mojang (sessionserver, pour
+/// prouver le pseudo au classement du Snake : snake.rs), jamais ailleurs.
 #[derive(Clone)]
 pub struct Session {
     pub name: String,

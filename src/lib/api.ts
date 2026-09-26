@@ -165,6 +165,21 @@ export interface NewsItem {
 	url?: string;
 }
 
+/** Classement du Snake (snake.rs, service /snake/ du serveur). */
+export interface SnakeEntry {
+	name: string;
+	uuid: string;
+	score: number;
+	date: string;
+}
+export interface SnakeSubmitted {
+	top: SnakeEntry[];
+	/** Place du joueur dans tout le classement (1 = premier). */
+	rank: number;
+	/** Son meilleur score enregistré. */
+	best: number;
+}
+
 export interface DeviceCode {
 	user_code: string;
 	verification_uri: string;
@@ -221,6 +236,9 @@ export const api = {
 	restart: () => invoke<void>('restart'),
 	openFolder: (which: Folder) => invoke<void>('open_folder', { which }),
 	openUrl: (url: string) => invoke<void>('open_url', { url }),
+	snakeTop: () => invoke<SnakeEntry[]>('snake_top'),
+	/** Au nom du compte connecté, vérifié par Mojang. */
+	snakeSubmit: (score: number) => invoke<SnakeSubmitted>('snake_submit', { score }),
 	play: () => invoke<void>('play'),
 	stop: () => invoke<void>('stop')
 };
