@@ -22,6 +22,9 @@ pub enum Event {
     /// Le jeu tourne mal côté carte graphique : pilote (diag::slow_gl_driver)
     /// ou carte intégrée au lieu de la grosse.
     GpuWarning { title: String, renderer: String, advice: String },
+    /// Mods ajoutés à la main, mis de côté avant le lancement
+    /// (packwiz::set_aside_unknown_mods) : le serveur les refuserait.
+    ModsSetAside { files: Vec<String> },
     /// Le jeu s'est arrêté.
     GameExited { code: Option<i32>, crash: Option<crate::diag::CrashSummary> },
 }
@@ -59,6 +62,7 @@ impl Reporter for ConsoleReporter {
             }
             Event::Repaired => println!("   installation vérifiée et réparée"),
             Event::GpuWarning { title, renderer, advice } => println!("   ATTENTION — {title} ({renderer}) : {advice}"),
+            Event::ModsSetAside { files } => println!("   mods ajoutés mis de côté (mods-desactives) : {}", files.join(", ")),
             Event::GameReady { elapsed_ms } => println!("   jeu au menu en {:.1} s", elapsed_ms as f64 / 1000.0),
             Event::GameExited { code, crash } => {
                 println!("   jeu arrêté (code {code:?})");

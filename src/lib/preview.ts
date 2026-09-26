@@ -127,6 +127,9 @@ export function previewListen(cb: Handler) {
 				advice:
 					'Ta machine a une carte plus puissante (NVIDIA GeForce RTX 4070 Laptop GPU). Dans Windows : Paramètres → Système → Affichage → Graphiques → javaw.exe (dans le dossier turicraft) → Hautes performances. Puis relance le jeu.'
 			});
+		} else if (etat === 'mods') {
+			// packwiz::set_aside_unknown_mods
+			emit({ kind: 'mods_set_aside', files: ['wurst-neoforge.jar', 'xray-ultimate.jar'] });
 		} else if (etat === 'pilote') {
 			// Texte de diag::slow_gl_driver (Snapdragon sans pilote OpenGL natif).
 			emit({

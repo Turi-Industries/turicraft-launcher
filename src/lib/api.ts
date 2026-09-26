@@ -120,7 +120,8 @@ export type Folder =
 	| 'saves'
 	| 'schematics'
 	| 'resourcepacks'
-	| 'shaderpacks';
+	| 'shaderpacks'
+	| 'mods-desactives';
 
 /** Accès rapide (Jouer, Options) : ce que le joueur ajoute ou retrouve lui-même. */
 export const FOLDERS: { id: Folder; label: string; hint: string }[] = [
@@ -209,6 +210,7 @@ export type LauncherEvent =
 	  }
 	| { kind: 'game_ready'; elapsed_ms: number }
 	| { kind: 'gpu_warning'; title: string; renderer: string; advice: string }
+	| { kind: 'mods_set_aside'; files: string[] }
 	| { kind: 'repaired' }
 	| { kind: 'game_exited'; code: number | null; crash: CrashSummary | null };
 

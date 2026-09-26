@@ -173,6 +173,65 @@ pub fn installed_pack_version(paths: &Paths) -> Option<String> {
     v.get("version")?.as_str().map(String::from)
 }
 
+/// Dossier (dans l'instance) où vont les mods ajoutés à la main.
+pub const MODS_SET_ASIDE: &str = "mods-desactives";
+
+/// Met de côté les jars (et zips) du dossier `mods/` que le pack n'a pas
+/// installés : un mod ajouté à la main. Le serveur refuse un joueur qui a un
+/// mod absent du pack (anti-triche, turicraft-compat) ; autant le dire avant
+/// la connexion, et le jeu reste identique pour tout le monde en solo aussi.
+///
+/// Le pack, c'est `packwiz.json` : `cachedLocation` de chaque fichier
+/// installé. Sans manifeste lisible, ou sans aucun mod dedans, on ne touche à
+/// rien (mieux vaut laisser un mod de trop que vider le dossier). Les fichiers
+/// vont dans `mods-desactives/`, jamais supprimés. Rend leurs noms.
+pub fn set_aside_unknown_mods(paths: &Paths) -> Result<Vec<String>> {
+    let instance = paths.instance();
+    let Ok(text) = std::fs::read_to_string(instance.join("packwiz.json")) else {
+        return Ok(Vec::new());
+    };
+    let manifest: Value = serde_json::from_str(&text).context("packwiz.json illisible")?;
+    let known: HashSet<String> = manifest["cachedFiles"]
+        .as_object()
+        .map(|files| {
+            files
+                .values()
+                .filter_map(|f| f["cachedLocation"].as_str())
+                .filter_map(|l| l.strip_prefix("mods/"))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if known.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Ok(entries) = std::fs::read_dir(instance.join("mods")) else {
+        return Ok(Vec::new());
+    };
+    let mut moved = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let lower = name.to_lowercase();
+        let is_mod = lower.ends_with(".jar") || lower.ends_with(".zip");
+        if !is_mod || known.contains(&name) || !entry.file_type().is_ok_and(|t| t.is_file()) {
+            continue;
+        }
+        let dir = instance.join(MODS_SET_ASIDE);
+        std::fs::create_dir_all(&dir).context("création de mods-desactives")?;
+        // Un fichier du même nom déjà mis de côté : on ne l'écrase pas.
+        let mut dest = dir.join(&name);
+        let mut n = 2;
+        while dest.exists() {
+            dest = dir.join(format!("{n}-{name}"));
+            n += 1;
+        }
+        std::fs::rename(entry.path(), &dest).with_context(|| format!("déplacement de {name}"))?;
+        moved.push(name);
+    }
+    moved.sort();
+    Ok(moved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,6 +250,38 @@ mod tests {
         let h = pack_hashes(&paths, &wanted);
         assert_eq!(h.len(), 1);
         assert_eq!(h["config/DistantHorizons.toml"], "abc");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn mods_ajoutes_mis_de_cote() {
+        let dir = std::env::temp_dir().join(format!("turicraft-pw-aside-{}", std::process::id()));
+        let paths = Paths::new(dir.clone());
+        let mods = paths.instance().join("mods");
+        std::fs::create_dir_all(&mods).unwrap();
+        // Sans manifeste : rien ne bouge.
+        std::fs::write(mods.join("triche.jar"), b"x").unwrap();
+        assert!(set_aside_unknown_mods(&paths).unwrap().is_empty());
+        assert!(mods.join("triche.jar").exists());
+
+        std::fs::write(
+            paths.instance().join("packwiz.json"),
+            r#"{"cachedFiles":{"mods/sodium.pw.toml":{"cachedLocation":"mods/sodium.jar"},
+                "config/a.toml":{"cachedLocation":"config/a.toml"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(mods.join("sodium.jar"), b"x").unwrap();
+        std::fs::write(mods.join("notes.txt"), b"x").unwrap();
+        std::fs::create_dir_all(paths.instance().join(MODS_SET_ASIDE)).unwrap();
+        std::fs::write(paths.instance().join(MODS_SET_ASIDE).join("triche.jar"), b"ancien").unwrap();
+
+        assert_eq!(set_aside_unknown_mods(&paths).unwrap(), vec!["triche.jar".to_string()]);
+        assert!(mods.join("sodium.jar").exists(), "un mod du pack reste");
+        assert!(mods.join("notes.txt").exists(), "ce qui n'est pas un mod reste");
+        assert!(!mods.join("triche.jar").exists());
+        let aside = paths.instance().join(MODS_SET_ASIDE);
+        assert_eq!(std::fs::read(aside.join("triche.jar")).unwrap(), b"ancien", "rien n'est écrasé");
+        assert!(aside.join("2-triche.jar").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

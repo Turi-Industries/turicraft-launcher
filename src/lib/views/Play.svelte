@@ -149,6 +149,22 @@
 			</section>
 		{/if}
 
+		{#if L.modsSetAside}
+			{@const n = L.modsSetAside.length}
+			<section class="panel problem">
+				<div class="section-title">{n > 1 ? 'Mods ajoutés mis de côté' : 'Mod ajouté mis de côté'}</div>
+				<p>
+					Le serveur n’accepte que les mods du pack : {n > 1 ? 'ces mods ont été déplacés' : 'ce mod a été déplacé'}
+					dans le dossier « mods-desactives ». Rien n’est supprimé.
+				</p>
+				<p class="hint">{L.modsSetAside.join(', ')}</p>
+				<div class="row">
+					<button class="mc-btn small" onclick={() => api.openFolder('mods-desactives')}>Ouvrir le dossier</button>
+					<button class="link" onclick={() => (L.modsSetAside = null)}>Masquer</button>
+				</div>
+			</section>
+		{/if}
+
 		{#if L.gpuWarning}
 			<section class="panel problem">
 				<div class="section-title">{L.gpuWarning.title}</div>

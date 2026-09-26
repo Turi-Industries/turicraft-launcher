@@ -635,6 +635,8 @@ fn open_folder(app: AppHandle, state: State<'_, Arc<AppState>>, which: String) -
         "schematics" => game.join("schematics"),
         "resourcepacks" => game.join("resourcepacks"),
         "shaderpacks" => game.join("shaderpacks"),
+        // Mods ajoutés à la main, mis de côté avant le lancement.
+        "mods-desactives" => game.join(packwiz::MODS_SET_ASIDE),
         _ => return Err(format!("dossier inconnu : {which}")),
     };
     std::fs::create_dir_all(&path).ok();

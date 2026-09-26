@@ -2,7 +2,8 @@
 //!
 //! Préparation, à chaque clic sur « Jouer » (rapide quand tout est déjà là) :
 //! versions lues dans pack.toml → Java → Minecraft → NeoForge → pack
-//! (packwiz) → mods optionnels du préréglage → configs du préréglage.
+//! (packwiz) → mods optionnels du préréglage → mods ajoutés à la main mis de
+//! côté → configs du préréglage.
 //!
 //! Lancement : la sortie du jeu est lue ligne à ligne ; des jalons connus
 //! deviennent une progression, estimée d'après la durée du lancement précédent
@@ -60,6 +61,11 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
     if changed {
         r.log("mods optionnels modifiés : nouvelle synchronisation");
         packwiz::sync(paths, &java, &pack_url, r).await?;
+    }
+    let aside = packwiz::set_aside_unknown_mods(paths)?;
+    if !aside.is_empty() {
+        r.log(&format!("mods hors du pack mis de côté ({}) : {}", packwiz::MODS_SET_ASIDE, aside.join(", ")));
+        r.send(Event::ModsSetAside { files: aside });
     }
     // Les réglages ne sont réécrits que s'ils ont changé côté launcher (choix
     // du joueur, ou presets.toml mis à jour) : sinon, ce que le joueur a

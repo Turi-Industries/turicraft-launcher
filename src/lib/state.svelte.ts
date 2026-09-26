@@ -68,6 +68,8 @@ class LauncherState {
 	crash = $state<CrashSummary | null>(null);
 	/** Pilote graphique qui ralentit le jeu, vu au dernier lancement. */
 	gpuWarning = $state<{ title: string; renderer: string; advice: string } | null>(null);
+	/** Mods ajoutés à la main, mis de côté au dernier lancement (refusés par le serveur). */
+	modsSetAside = $state<string[] | null>(null);
 	/** « Réparer » en cours (Options) : même file que « Jouer », sans lancer le jeu. */
 	repairing = $state(false);
 	repairDone = $state(false);
@@ -153,6 +155,7 @@ class LauncherState {
 		this.inGame = false;
 		this.crash = null;
 		this.gpuWarning = null;
+		this.modsSetAside = null;
 		this.error = null;
 		this.milestone = null;
 		this.progress = { done: 0, total: 0 };
@@ -396,6 +399,10 @@ class LauncherState {
 					case 'gpu_warning':
 						this.gpuWarning = { title: e.title, renderer: e.renderer, advice: e.advice };
 						this.log(`${e.title} : ${e.renderer}`);
+						break;
+					case 'mods_set_aside':
+						this.modsSetAside = e.files;
+						this.log(`Mods hors du pack mis de côté : ${e.files.join(', ')}`);
 						break;
 					case 'game_exited':
 						this.running = false;
