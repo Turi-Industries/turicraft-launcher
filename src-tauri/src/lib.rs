@@ -5,6 +5,7 @@ pub mod config;
 pub mod diag;
 pub mod discord;
 pub mod display;
+pub mod external;
 pub mod hardware;
 pub mod java;
 pub mod launch;
@@ -392,7 +393,7 @@ async fn news() -> Vec<updates::NewsItem> {
 async fn login_browser(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<Account> {
     let client_id = settings::azure_client_id().ok_or("connexion Microsoft non configurée")?;
     let login = auth::start_browser_login(&client_id).await.map_err(err)?;
-    app.opener().open_url(login.url.clone(), None::<&str>).map_err(|e| e.to_string())?;
+    open_external(&app, &login.url, false)?;
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
     // Une nouvelle tentative annule la précédente.
     if let Some(old) = state.login.lock().unwrap().replace(cancel_tx) {
@@ -642,7 +643,7 @@ fn open_folder(app: AppHandle, state: State<'_, Arc<AppState>>, which: String) -
         _ => return Err(format!("dossier inconnu : {which}")),
     };
     std::fs::create_dir_all(&path).ok();
-    app.opener().open_path(path.display().to_string(), None::<&str>).map_err(|e| e.to_string())
+    open_external(&app, &path.display().to_string(), true)
 }
 
 /// Classement du Snake (les 10 meilleurs).
@@ -687,11 +688,25 @@ async fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
         _ => None,
     };
     if let Some(link) = in_app {
-        if app.opener().open_url(link, None::<&str>).is_ok() {
+        if open_external(&app, &link, false).is_ok() {
             return Ok(());
         }
     }
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+    open_external(&app, &url, false)
+}
+
+/// Lien ou dossier ouvert par le bureau. Dans l'AppImage, par le xdg-open du
+/// système (external.rs : celui de l'AppImage n'ouvre rien sous Plasma 6).
+fn open_external(app: &AppHandle, target: &str, is_path: bool) -> CmdResult<()> {
+    if let Some(done) = external::system_open(target) {
+        return done.map_err(|e| e.to_string());
+    }
+    let opened = if is_path {
+        app.opener().open_path(target, None::<&str>)
+    } else {
+        app.opener().open_url(target, None::<&str>)
+    };
+    opened.map_err(|e| e.to_string())
 }
 
 /// Tout le parcours de « Jouer ». Rend la main tout de suite : la suite
