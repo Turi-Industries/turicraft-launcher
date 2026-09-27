@@ -102,7 +102,7 @@ joueur = [
   "mods/wavey-capes.pw.toml",
   "mods/not-enough-animations.pw.toml",
 ]
-premiere_personne = ["mods/first-person-model.pw.toml"]
+premiere_personne = ["mods/first-person-model.pw.toml", "mods/fpm-x-compat.pw.toml"]
 # Contraption Lights éclaire les engins Create PAR LambDynamicLights : sans
 # lui, il affiche en jeu « Lighting mode LAMB, which is not installed ».
 lumieres = ["mods/lambdynamiclights.pw.toml", "mods/contraption-lights.pw.toml"]
