@@ -16,6 +16,7 @@ pub mod paths;
 pub mod ping;
 pub mod presets;
 pub mod progress;
+pub mod report;
 pub mod settings;
 pub mod skin;
 pub mod snake;
@@ -693,12 +694,40 @@ fn play(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     let screen = game_screen(&app);
     *task = Some(tauri::async_runtime::spawn(async move {
         let reporter = TauriReporter { app: app.clone(), behavior, had_focus: Default::default() };
-        if let Err(e) = play_inner(&st, &reporter, screen).await {
-            keep_on_top(&app, false);
-            reporter.taskbar(ProgressBarStatus::Error, None);
-            let _ = app.emit("launcher-error", format!("{e:#}"));
+        match play_inner(&st, &reporter, screen).await {
+            // Envoi à part : « Jouer » est de nouveau libre pendant ce temps.
+            Ok(Some(_)) if st.settings.lock().unwrap().send_crash_reports => {
+                tauri::async_runtime::spawn(send_crash_report(app.clone(), st.clone()));
+            }
+            Ok(Some(_)) => {
+                let _ = app.emit("launcher", Event::CrashReport { status: "manual".into(), id: None, error: None });
+            }
+            Ok(None) => {}
+            Err(e) => {
+                keep_on_top(&app, false);
+                reporter.taskbar(ProgressBarStatus::Error, None);
+                let _ = app.emit("launcher-error", format!("{e:#}"));
+            }
         }
     }));
+    Ok(())
+}
+
+/// Rapport du dernier crash (report.rs), envoyé à l'équipe : l'interface
+/// suit l'envoi par les événements `crash_report`.
+async fn send_crash_report(app: AppHandle, st: Arc<AppState>) {
+    let _ = app.emit("launcher", Event::CrashReport { status: "sending".into(), id: None, error: None });
+    let event = match report::send_saved(&st.paths, &settings::pack_url()).await {
+        Ok(id) => Event::CrashReport { status: "sent".into(), id: Some(id), error: None },
+        Err(e) => Event::CrashReport { status: "failed".into(), id: None, error: Some(format!("{e:#}")) },
+    };
+    let _ = app.emit("launcher", event);
+}
+
+/// « Envoyer le rapport » : envoi automatique coupé, ou échoué.
+#[tauri::command]
+async fn crash_report_send(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    send_crash_report(app, state.inner().clone()).await;
     Ok(())
 }
 
@@ -730,7 +759,8 @@ fn game_screen(app: &AppHandle) -> Option<(u32, u32)> {
     Some(((w / scale).round() as u32, (h / scale).round() as u32))
 }
 
-async fn play_inner(state: &AppState, r: &dyn Reporter, screen: Option<(u32, u32)>) -> anyhow::Result<()> {
+/// Rend le rapport de crash si le jeu s'est arrêté anormalement.
+async fn play_inner(state: &AppState, r: &dyn Reporter, screen: Option<(u32, u32)>) -> anyhow::Result<Option<report::Report>> {
     check_network(&state.paths).await?;
     import_before_launch(state, r).await;
     let settings = state.settings.lock().unwrap().clone();
@@ -767,7 +797,7 @@ async fn play_inner(state: &AppState, r: &dyn Reporter, screen: Option<(u32, u32
         s.last_milestones_ms = outcome.milestones_ms;
         s.save(&state.paths)?;
     }
-    Ok(())
+    Ok(outcome.report)
 }
 
 /// Tout ce qui suit passe par le réseau (compte, pack.toml, catalogues,
@@ -864,6 +894,7 @@ pub fn run() {
             open_url,
             snake_top,
             snake_submit,
+            crash_report_send,
             play,
             stop
         ])

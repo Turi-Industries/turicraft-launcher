@@ -47,7 +47,10 @@ fn newest(dir: &Path, prefix: &str, suffix: &str, since: SystemTime) -> Option<P
         .map(|(_, p)| p)
 }
 
-pub fn analyze(game_dir: &Path, since: SystemTime) -> Option<CrashSummary> {
+/// Arrêt anormal (code de sortie non nul) : toujours un résumé, même sans
+/// crash-report ni hs_err (processus tué par le système faute de mémoire,
+/// `System.exit` d'un mod…) — le journal dit alors ce qu'on sait.
+pub fn analyze(game_dir: &Path, since: SystemTime, code: Option<i32>) -> CrashSummary {
     let log = std::fs::read_to_string(game_dir.join("logs/latest.log")).unwrap_or_default();
     let first_error = log
         .lines()
@@ -66,17 +69,29 @@ pub fn analyze(game_dir: &Path, since: SystemTime) -> Option<CrashSummary> {
             .trim_start_matches('#')
             .trim()
             .to_string();
-        return Some(CrashSummary {
+        return CrashSummary {
             description: "Plantage de Java (code natif)".into(),
             cause: frame,
             report: Some(h.display().to_string()),
             first_error,
             cascade,
             native: true,
-        });
+        };
     }
 
-    let report = newest(&game_dir.join("crash-reports"), "crash-", ".txt", since)?;
+    let Some(report) = newest(&game_dir.join("crash-reports"), "crash-", ".txt", since) else {
+        return CrashSummary {
+            description: match code {
+                Some(c) => format!("Le jeu s'est arrêté sans rapport de crash (code {c})"),
+                None => "Le jeu a été arrêté par le système, sans rapport de crash".into(),
+            },
+            cause: "Le journal du jeu (logs/latest.log) dit ce qui s'est passé juste avant.".into(),
+            report: None,
+            first_error,
+            cascade,
+            native: false,
+        };
+    };
     let text = std::fs::read_to_string(&report).unwrap_or_default();
     let mut lines = text.lines();
     let description = lines
@@ -85,14 +100,14 @@ pub fn analyze(game_dir: &Path, since: SystemTime) -> Option<CrashSummary> {
         .unwrap_or("?")
         .to_string();
     let cause = lines.find(|l| !l.trim().is_empty()).unwrap_or("").chars().take(300).collect();
-    Some(CrashSummary {
+    CrashSummary {
         description,
         cause,
         report: Some(report.display().to_string()),
         first_error,
         cascade,
         native: false,
-    })
+    }
 }
 
 /// Pilote graphique qui ralentit tout le jeu, vu dans la ligne

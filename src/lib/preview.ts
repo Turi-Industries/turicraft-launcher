@@ -91,6 +91,7 @@ function settings() {
 		choices: p.get('perso') === '1' ? { shader_pack: 'autre' } : {},
 		join_server: false,
 		launcher_behavior: 'reduire',
+		send_crash_reports: p.get('rapport') !== 'manuel',
 		account: p.get('compte') === '0' ? null : { name: 'Joueur_Turi', uuid: '00000000000040008000000000000000' },
 		last_milestones_ms: [1000, 11000, 20000, 21000, 36000, 60000, 78000]
 	};
@@ -152,6 +153,17 @@ export function previewListen(cb: Handler) {
 					native: false
 				}
 			});
+			// report.rs : ?rapport=envoi|echec|manuel, envoyé par défaut.
+			const r = params().get('rapport');
+			emit(
+				r === 'envoi'
+					? { kind: 'crash_report', status: 'sending', id: null, error: null }
+					: r === 'echec'
+						? { kind: 'crash_report', status: 'failed', id: null, error: 'serveur des rapports injoignable' }
+						: r === 'manuel'
+							? { kind: 'crash_report', status: 'manual', id: null, error: null }
+							: { kind: 'crash_report', status: 'sent', id: '7F3A2C', error: null }
+			);
 		}
 	}, 50);
 	return Promise.resolve(() => {});
@@ -242,6 +254,9 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 				{ date: '2026-09-24', title: 'Le launcher Turi Craft arrive', body: 'Installation du jeu, des mods et des réglages en un clic, préréglages de qualité adaptés à ta machine, et connexion avec ton compte Microsoft.' },
 				{ date: '2026-09-24', title: 'Nouveaux menus', body: 'Menu principal et menu pause refaits.\nDans l’esprit de Minecraft.', url: 'https://discord.com/channels/1/2/3' }
 			];
+		case 'crash_report_send':
+			setTimeout(() => handlers.forEach((h) => h({ kind: 'crash_report', status: 'sent', id: '7F3A2C', error: null })), 800);
+			return null;
 		case 'snake_top':
 		case 'snake_submit': {
 			const top = [

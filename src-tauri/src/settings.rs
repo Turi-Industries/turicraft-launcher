@@ -46,6 +46,9 @@ pub struct Settings {
     /// Ce que fait le launcher quand le jeu est au menu : « reduire »,
     /// « garder » ou « fermer » (caché, puis quitté à la fin du jeu).
     pub launcher_behavior: String,
+    /// Après un crash, envoyer tout seul le rapport à l'équipe du serveur
+    /// (report.rs). Coupé : le joueur l'envoie d'un bouton, s'il le veut.
+    pub send_crash_reports: bool,
     /// Compte : nom et UUID Minecraft (publics). Le jeton n'est pas ici.
     pub account: Option<Account>,
     /// Durée de chaque jalon au lancement précédent, pour estimer le temps
@@ -76,6 +79,7 @@ impl Default for Settings {
             once_files_applied: 0,
             join_server: false,
             launcher_behavior: "reduire".into(),
+            send_crash_reports: true,
             account: None,
             last_milestones_ms: Vec::new(),
         }
@@ -106,6 +110,7 @@ impl Settings {
         self.choices = from.choices;
         self.join_server = from.join_server;
         self.launcher_behavior = from.launcher_behavior;
+        self.send_crash_reports = from.send_crash_reports;
     }
 
     /// « Tout remettre à zéro » (Options) : comme à l'installation, sauf le

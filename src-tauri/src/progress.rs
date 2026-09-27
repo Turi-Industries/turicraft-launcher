@@ -27,6 +27,10 @@ pub enum Event {
     ModsSetAside { files: Vec<String> },
     /// Le jeu s'est arrêté.
     GameExited { code: Option<i32>, crash: Option<crate::diag::CrashSummary> },
+    /// Rapport de crash (report.rs) : « sending », « sent » (avec son
+    /// numéro), « failed » (avec l'erreur) ou « manual » (envoi automatique
+    /// coupé : au joueur de choisir).
+    CrashReport { status: String, id: Option<String>, error: Option<String> },
 }
 
 pub trait Reporter: Send + Sync {
@@ -69,6 +73,9 @@ impl Reporter for ConsoleReporter {
                 if let Some(c) = crash {
                     println!("   crash : {} — {}", c.description, c.cause);
                 }
+            }
+            Event::CrashReport { status, id, error } => {
+                println!("   rapport de crash : {status} {}", id.or(error).unwrap_or_default())
             }
         }
     }

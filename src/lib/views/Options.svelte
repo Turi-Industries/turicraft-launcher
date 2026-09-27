@@ -38,6 +38,13 @@
 				</span>
 				<input type="checkbox" bind:checked={L.s.join_server} onchange={() => L.save()} />
 			</label>
+			<label class="switch">
+				<span>
+					Envoyer les rapports de crash
+					<span class="hint block">Si le jeu plante, ses journaux partent à l’équipe du serveur, sans tes fichiers personnels.</span>
+				</span>
+				<input type="checkbox" bind:checked={L.s.send_crash_reports} onchange={() => L.save()} />
+			</label>
 		</div>
 	{/if}
 

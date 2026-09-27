@@ -29,6 +29,8 @@ export interface Settings {
 	mods: Record<string, boolean>;
 	join_server: boolean;
 	launcher_behavior: Behavior;
+	/** Envoyer tout seul le rapport d'un crash à l'équipe (report.rs). */
+	send_crash_reports: boolean;
 	account: Account | null;
 	last_milestones_ms: number[];
 }
@@ -212,7 +214,11 @@ export type LauncherEvent =
 	| { kind: 'gpu_warning'; title: string; renderer: string; advice: string }
 	| { kind: 'mods_set_aside'; files: string[] }
 	| { kind: 'repaired' }
-	| { kind: 'game_exited'; code: number | null; crash: CrashSummary | null };
+	| { kind: 'game_exited'; code: number | null; crash: CrashSummary | null }
+	| { kind: 'crash_report'; status: CrashReportStatus; id: string | null; error: string | null };
+
+/** Rapport de crash envoyé à l'équipe (report.rs) : `manual` = envoi automatique coupé. */
+export type CrashReportStatus = 'sending' | 'sent' | 'failed' | 'manual';
 
 export const api = {
 	overview: () => invoke<Overview>('overview'),
@@ -241,6 +247,8 @@ export const api = {
 	snakeTop: () => invoke<SnakeEntry[]>('snake_top'),
 	/** Au nom du compte connecté, vérifié par Mojang. */
 	snakeSubmit: (score: number) => invoke<SnakeSubmitted>('snake_submit', { score }),
+	/** Résultat par l'événement `crash_report`. */
+	sendCrashReport: () => invoke<void>('crash_report_send'),
 	play: () => invoke<void>('play'),
 	stop: () => invoke<void>('stop')
 };

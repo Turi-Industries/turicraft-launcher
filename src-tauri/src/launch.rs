@@ -302,6 +302,9 @@ pub fn command_line(
 pub struct Outcome {
     pub code: Option<i32>,
     pub milestones_ms: Vec<u64>,
+    /// Arrêt anormal : le rapport à envoyer à l'équipe (report.rs), déjà
+    /// enregistré sur le disque.
+    pub report: Option<crate::report::Report>,
 }
 
 /// PID du jeu en cours (0 : aucun). « Arrêter » s'en sert pour prévenir
@@ -324,7 +327,6 @@ pub fn stopped_by_player(paths: &Paths) {
     let _ = std::fs::create_dir_all(&dir)
         .and_then(|_| std::fs::write(dir.join(format!("prevent_crash_assistant_window_pid{pid}.tmp")), now.to_string()));
 }
-
 
 pub async fn launch(
     paths: &Paths,
@@ -412,9 +414,18 @@ pub async fn launch(
     }
     let status = child.wait().await?;
     let code = status.code();
-    let crash = if status.success() { None } else { crate::diag::analyze(&game, started_at) };
+    let crash = if status.success() { None } else { Some(crate::diag::analyze(&game, started_at, code)) };
+    // Rassemblé tout de suite (les journaux changent au lancement suivant),
+    // envoyé par l'appelant : l'envoi ne retarde pas l'écran de crash.
+    let report = crash.as_ref().map(|c| {
+        let rep = crate::report::collect(paths, settings, session, c, code, start.elapsed(), reached.len(), MILESTONES.len());
+        if let Err(e) = rep.save(paths) {
+            r.log(&format!("rapport de crash non enregistré : {e:#}"));
+        }
+        rep
+    });
     r.send(Event::GameExited { code, crash });
-    Ok(Outcome { code, milestones_ms: if reached.len() == MILESTONES.len() { reached } else { Vec::new() } })
+    Ok(Outcome { code, milestones_ms: if reached.len() == MILESTONES.len() { reached } else { Vec::new() }, report })
 }
 
 #[cfg(test)]

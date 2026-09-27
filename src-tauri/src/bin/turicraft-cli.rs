@@ -10,6 +10,7 @@
 //! turicraft-cli login               connexion Microsoft par code, jusqu'au profil
 //! turicraft-cli login-web           connexion Microsoft par le navigateur
 //! turicraft-cli diag                analyse le dernier crash
+//! turicraft-cli report              envoie le rapport du dernier crash à l'équipe
 //! ```
 //!
 //! Variables : TURICRAFT_HOME (dossier de données), TURICRAFT_PACK_URL.
@@ -17,7 +18,7 @@
 use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
-use turicraft_lib::{auth, config, diag, hardware, launch, paths::Paths, ping, presets, progress::ConsoleReporter, settings::Settings};
+use turicraft_lib::{auth, config, diag, hardware, launch, paths::Paths, ping, presets, progress::ConsoleReporter, report, settings::Settings};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -46,7 +47,15 @@ async fn main() -> Result<()> {
             let session = auth::offline_session(&name);
             let mut s = settings.clone();
             s.join_server = false; // hors ligne : le serveur refuserait
-            launch::launch(&paths, &s, &session, &prepared, &r).await?;
+            let outcome = launch::launch(&paths, &s, &session, &prepared, &r).await?;
+            if outcome.report.is_some() {
+                println!("rapport de crash enregistré : `turicraft-cli report` pour l'envoyer");
+            }
+        }
+        Some("report") => {
+            // Envoie le rapport du dernier crash (dernier-crash.json).
+            let id = report::send_saved(&paths, &turicraft_lib::settings::pack_url()).await?;
+            println!("rapport envoyé : n° {id}");
         }
         Some("cmdline") => {
             // Ligne de commande du jeu, hors ligne, sans rien lancer. Une
@@ -78,9 +87,9 @@ async fn main() -> Result<()> {
         }
         Some("diag") => {
             let since = SystemTime::now() - Duration::from_secs(7 * 24 * 3600);
-            println!("{:#?}", diag::analyze(&paths.instance(), since));
+            println!("{:#?}", diag::analyze(&paths.instance(), since, None));
         }
-        _ => println!("commandes : detect | ping | prepare | launch <pseudo> | cmdline <pseudo> | login | login-web | diag"),
+        _ => println!("commandes : detect | ping | prepare | launch <pseudo> | cmdline <pseudo> | login | login-web | diag | report"),
     }
     Ok(())
 }

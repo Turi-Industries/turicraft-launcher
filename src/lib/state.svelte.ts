@@ -10,6 +10,7 @@ import {
 	onStopped,
 	type LauncherUpdate,
 	type CrashSummary,
+	type CrashReportStatus,
 	type DeviceCode,
 	type NewsItem,
 	type Overview,
@@ -66,6 +67,8 @@ class LauncherState {
 	now = $state(Date.now());
 	inGame = $state(false);
 	crash = $state<CrashSummary | null>(null);
+	/** Envoi du rapport de ce crash à l'équipe. */
+	crashReport = $state<{ status: CrashReportStatus; id: string | null; error: string | null } | null>(null);
 	/** Pilote graphique qui ralentit le jeu, vu au dernier lancement. */
 	gpuWarning = $state<{ title: string; renderer: string; advice: string } | null>(null);
 	/** Mods ajoutés à la main, mis de côté au dernier lancement (refusés par le serveur). */
@@ -154,6 +157,7 @@ class LauncherState {
 		this.running = true;
 		this.inGame = false;
 		this.crash = null;
+		this.crashReport = null;
 		this.gpuWarning = null;
 		this.modsSetAside = null;
 		this.error = null;
@@ -413,6 +417,11 @@ class LauncherState {
 						// Ce qui a été réglé en jeu apparaît tout de suite dans Qualité.
 						this.refreshOverview().then(() => this.refreshPresets());
 						api.checkUpdates().then((u) => (this.updates = u)).catch(() => {});
+						break;
+					case 'crash_report':
+						this.crashReport = { status: e.status, id: e.id, error: e.error };
+						if (e.status === 'sent') this.log(`Rapport de crash envoyé à l’équipe : n° ${e.id}`);
+						if (e.status === 'failed') this.log(`Rapport de crash non envoyé : ${e.error}`);
 						break;
 				}
 			}),

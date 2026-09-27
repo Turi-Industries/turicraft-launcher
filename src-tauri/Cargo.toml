@@ -51,5 +51,6 @@ sysinfo = "0.33"
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
+flate2 = "1"
 md-5 = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }

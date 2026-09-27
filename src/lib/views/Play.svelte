@@ -141,7 +141,21 @@
 				{#if L.crash.cascade}
 					<p class="hint">Un mod a échoué plus tôt : les erreurs suivantes en découlent.</p>
 				{/if}
+				{#if L.crashReport?.status === 'sending'}
+					<p class="hint">Envoi du rapport à l’équipe…</p>
+				{:else if L.crashReport?.status === 'sent'}
+					<p class="hint">Rapport envoyé à l’équipe : n° <strong>{L.crashReport.id}</strong>. Donne ce numéro si tu en parles sur Discord.</p>
+				{:else if L.crashReport?.status === 'failed'}
+					<p class="hint">Rapport non envoyé : {L.crashReport.error}</p>
+				{:else if L.crashReport?.status === 'manual'}
+					<p class="hint">Le rapport (journaux du jeu, sans tes fichiers personnels) aide l’équipe à trouver la cause.</p>
+				{/if}
 				<div class="row">
+					{#if L.crashReport?.status === 'failed' || L.crashReport?.status === 'manual'}
+						<button class="mc-btn small" onclick={() => api.sendCrashReport()}
+							>{L.crashReport.status === 'failed' ? 'Réessayer l’envoi' : 'Envoyer le rapport'}</button
+						>
+					{/if}
 					<button class="mc-btn small" onclick={() => api.openFolder('crash')}>Rapports de crash</button>
 					<button class="mc-btn small" onclick={() => api.openFolder('logs')}>Journaux du jeu</button>
 					<button class="link" onclick={() => (L.crash = null)}>Masquer</button>
