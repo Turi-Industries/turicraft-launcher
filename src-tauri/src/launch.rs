@@ -74,12 +74,14 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
     // (DistantHorizons.toml…) : le fichier neuf n'a plus les réglages.
     let applied = applied_hash(paths, &file, &resolved);
     let first_run = !paths.instance().join("options.txt").exists();
+    // Les ressources communes (dont les icônes de la minimap) sont posées
+    // avant le préréglage : Moyen/Haut ajoutent ensuite Fresh Animations.
+    let once_applied = presets::apply_once(paths, &file, (settings.once_applied, settings.once_files_applied), r)?;
     if first_run || settings.applied.as_deref() != Some(applied.as_str()) {
         presets::apply(paths, &file, &resolved, r)?;
     } else {
         r.log("réglages inchangés : ceux faits en jeu sont gardés");
     }
-    let once_applied = presets::apply_once(paths, &file, (settings.once_applied, settings.once_files_applied), r)?;
     early_window_off(&paths.instance())?;
     windowed_until_loaded(&paths.instance(), wants_fullscreen(&file, &resolved))?;
     Ok(Prepared { java, profile, resolved, applied, once_applied, window_size: None })
