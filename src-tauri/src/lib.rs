@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod config;
 pub mod diag;
+pub mod discord;
 pub mod display;
 pub mod hardware;
 pub mod java;
@@ -673,10 +674,22 @@ async fn snake_submit(state: State<'_, Arc<AppState>>, score: u32) -> CmdResult<
     snake::submit(&pack_url, &session, score).await.map_err(err)
 }
 
+/// Lien d'une nouveauté. Un message Discord s'ouvre dans l'application
+/// Discord si elle est installée (discord.rs), sinon dans le navigateur.
 #[tauri::command]
-fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
+async fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
     if !url.starts_with("https://") {
         return Err("adresse refusée".into());
+    }
+    let in_app = discord::app_link(&url);
+    let in_app = match in_app {
+        Some(link) if tauri::async_runtime::spawn_blocking(discord::app_installed).await.unwrap_or(false) => Some(link),
+        _ => None,
+    };
+    if let Some(link) = in_app {
+        if app.opener().open_url(link, None::<&str>).is_ok() {
+            return Ok(());
+        }
     }
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
