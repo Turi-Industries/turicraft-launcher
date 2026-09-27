@@ -38,6 +38,18 @@ pub fn system_open(target: &str) -> Option<std::io::Result<()>> {
     }
 }
 
+/// Environnement à donner aux programmes lancés par le launcher (le jeu) :
+/// celui du bureau, sans l'AppImage. Hors AppImage : `None`, rien à changer.
+/// Sans ça, le jeu hérite de l'`xdg-open` et des bibliothèques de l'AppImage :
+/// les liens cliqués en jeu ne s'ouvrent pas non plus sous Plasma 6.
+pub fn desktop_env_for_children() -> Option<Vec<(OsString, OsString)>> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let appdir = std::env::var("APPDIR").ok()?;
+    Some(desktop_env(std::env::vars_os(), &appdir))
+}
+
 /// Posées par l'AppImage (AppRun, crochet GTK de linuxdeploy) et sans
 /// chemin à trier : retirées d'office.
 const APPIMAGE_ONLY: &[&str] = &["APPDIR", "APPIMAGE", "ARGV0", "OWD", "GTK_THEME", "GDK_BACKEND", "GTK_CSD"];
@@ -48,7 +60,6 @@ const APPIMAGE_ONLY: &[&str] = &["APPDIR", "APPIMAGE", "ARGV0", "OWD", "GTK_THEM
 /// extraite. Une variable qui n'avait que de telles entrées disparaît.
 /// (Après un redémarrage du launcher, l'environnement porte DEUX montages :
 /// l'ancien et le nouveau.)
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn desktop_env(vars: impl Iterator<Item = (OsString, OsString)>, appdir: &str) -> Vec<(OsString, OsString)> {
     let appdir = appdir.trim_end_matches('/');
     let inside = |p: &str| {

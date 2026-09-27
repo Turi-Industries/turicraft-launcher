@@ -342,6 +342,11 @@ pub async fn launch(
     let started_at = SystemTime::now();
     let start = Instant::now();
     let mut cmd = tokio::process::Command::new(&prepared.java);
+    // Lancé depuis l'AppImage (Linux) : le jeu reçoit l'environnement du
+    // bureau, pas celui de l'AppImage (external.rs) — liens cliqués en jeu.
+    if let Some(env) = crate::external::desktop_env_for_children() {
+        cmd.env_clear().envs(env);
+    }
     cmd.args(&jvm)
         .args(&game_args)
         .current_dir(&game)
