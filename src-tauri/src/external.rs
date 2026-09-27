@@ -7,19 +7,37 @@
 //! Plus aucun lien ni dossier ne s'ouvrait chez Jean (27/09). On appelle donc
 //! le `xdg-open` du système, dans l'environnement du bureau : sans rien de ce
 //! que l'AppImage y a ajouté.
+//!
+//! Adresses hors web (`discord://`…) : `gio open`, AppImage ou pas. Sous KDE,
+//! `xdg-open` passe par `kde-open`, dont le filtre d'adresses prend
+//! `discord:` pour un nom de serveur et envoie `http://discord//-/channels/…`
+//! au navigateur, alors que l'association `discord://` → Vesktop était
+//! juste (27/09). `gio open` lit les associations sans filtre.
 
 use std::ffi::OsString;
 
-/// Hors AppImage (ou hors Linux) : `None`, le plugin opener s'en charge.
+/// Rien à faire ici (hors Linux, ou adresse web ou dossier hors AppImage) :
+/// `None`, le plugin opener s'en charge.
 pub fn system_open(target: &str) -> Option<std::io::Result<()>> {
     #[cfg(target_os = "linux")]
     {
-        let appdir = std::env::var("APPDIR").ok()?;
-        let env = desktop_env(std::env::vars_os(), &appdir);
+        let appdir = std::env::var("APPDIR").ok();
+        let custom = custom_scheme(target);
+        if appdir.is_none() && !custom {
+            return None;
+        }
+        let env = match &appdir {
+            Some(a) => desktop_env(std::env::vars_os(), a),
+            None => std::env::vars_os().collect(),
+        };
         let path = env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone()).unwrap_or_default();
-        let xdg_open = std::env::split_paths(&path).map(|d| d.join("xdg-open")).find(|p| p.is_file())?;
-        let spawned = std::process::Command::new(xdg_open)
-            .arg(target)
+        let find = |name: &str| std::env::split_paths(&path).map(|d| d.join(name)).find(|p| p.is_file());
+        let (program, args): (_, Vec<&str>) = match find("gio") {
+            Some(gio) if custom => (gio, vec!["open", target]),
+            _ => (find("xdg-open")?, vec![target]),
+        };
+        let spawned = std::process::Command::new(program)
+            .args(args)
             .env_clear()
             .envs(env)
             .stdin(std::process::Stdio::null())
@@ -35,6 +53,19 @@ pub fn system_open(target: &str) -> Option<std::io::Result<()>> {
     {
         let _ = target;
         None
+    }
+}
+
+/// Adresse d'une application (`discord://…`), pas du web ni un dossier.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn custom_scheme(target: &str) -> bool {
+    match target.split_once("://") {
+        Some((scheme, _)) => {
+            !scheme.is_empty()
+                && scheme.chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+                && !["http", "https", "file"].contains(&scheme.to_ascii_lowercase().as_str())
+        }
+        None => false,
     }
 }
 
@@ -86,6 +117,15 @@ mod tests {
 
     fn env(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
         pairs.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))).collect()
+    }
+
+    #[test]
+    fn adresses_d_application() {
+        assert!(custom_scheme("discord://-/channels/1/2/3"));
+        assert!(!custom_scheme("https://discord.com/channels/1/2/3"));
+        assert!(!custom_scheme("http://localhost:1234/"));
+        assert!(!custom_scheme("/home/j/.local/share/turicraft/instance/screenshots"));
+        assert!(!custom_scheme("C:\\Users\\j\\x"));
     }
 
     #[test]
