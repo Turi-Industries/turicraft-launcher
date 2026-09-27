@@ -304,6 +304,28 @@ pub struct Outcome {
     pub milestones_ms: Vec<u64>,
 }
 
+/// PID du jeu en cours (0 : aucun). « Arrêter » s'en sert pour prévenir
+/// Crash Assistant avant de couper le jeu (`stopped_by_player`).
+static GAME_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Le joueur arrête le jeu depuis le launcher : le processus va être tué.
+/// Crash Assistant (mod du pack) surveille le jeu depuis un processus à part
+/// et, faute d'arrêt normal de Minecraft, ouvre sa fenêtre de crash. Il lit
+/// des signaux dans `local/crash_assistant/<nom>_pid<PID du jeu>.tmp` ;
+/// `prevent_crash_assistant_window` lui fait prendre l'arrêt pour normal
+/// (CrashAssistantApp.onMinecraftFinished, 1.11.12). À poser AVANT de tuer.
+pub fn stopped_by_player(paths: &Paths) {
+    let pid = GAME_PID.load(std::sync::atomic::Ordering::SeqCst);
+    if pid == 0 {
+        return;
+    }
+    let dir = paths.instance().join("local/crash_assistant");
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let _ = std::fs::create_dir_all(&dir)
+        .and_then(|_| std::fs::write(dir.join(format!("prevent_crash_assistant_window_pid{pid}.tmp")), now.to_string()));
+}
+
+
 pub async fn launch(
     paths: &Paths,
     settings: &Settings,
@@ -336,6 +358,15 @@ pub async fn launch(
         prefer_dedicated_gpu(&prepared.java, r);
     }
     let mut child = cmd.spawn().context("lancement de Java")?;
+    // Remis à 0 quand `launch` se termine, ou est abandonnée (« Arrêter »).
+    struct PidGuard;
+    impl Drop for PidGuard {
+        fn drop(&mut self) {
+            GAME_PID.store(0, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    GAME_PID.store(child.id().unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+    let _pid_guard = PidGuard;
 
     // stderr : seulement gardé pour le journal du launcher.
     let stderr = child.stderr.take().unwrap();

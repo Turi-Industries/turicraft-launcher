@@ -705,6 +705,9 @@ fn play(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
 /// Annule la préparation, ou arrête le jeu s'il tourne.
 #[tauri::command]
 fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
+    // Arrêt voulu : ni crash pour le launcher (la tâche est abandonnée avant
+    // de voir la fin du jeu), ni fenêtre de Crash Assistant.
+    launch::stopped_by_player(&state.paths);
     if let Some(t) = state.task.lock().unwrap().take() {
         t.abort();
     }
