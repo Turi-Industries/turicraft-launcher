@@ -244,9 +244,9 @@ pub async fn finish_browser_login(client_id: &str, login: BrowserLogin) -> Resul
 
 // ─── Où vit le jeton de renouvellement ────────────────────────────────────
 //
-// Windows, Linux : le trousseau du système. macOS : un fichier lisible par le
-// seul compte (0600) dans le dossier du launcher, comme Prism ou le launcher
-// officiel. Le trousseau de macOS lie son autorisation à la SIGNATURE de
+// Windows, Linux : le trousseau du système. macOS, et Linux sans trousseau
+// (plus bas) : un fichier lisible par le seul compte (0600) dans le dossier du
+// launcher, comme Prism ou le launcher officiel. Le trousseau de macOS lie son autorisation à la SIGNATURE de
 // l'application : sans certificat Apple payant, chaque version du launcher est
 // une nouvelle application, et chaque accès (lecture, puis réécriture du jeton
 // que Microsoft renouvelle) redemandait le mot de passe (24/09).
@@ -261,9 +261,21 @@ fn token_file() -> std::path::PathBuf {
     crate::paths::Paths::default_location().root.join("account.token")
 }
 
+// Linux sans trousseau : SteamOS en mode Jeu, gestionnaires de fenêtres
+// légers… aucun service Secret Service ne répond (« The name is not
+// activatable », 27/09). Le jeton va alors dans le même fichier que sur macOS,
+// et y reste : une fois le fichier présent, on ne lit ni n'écrit plus le
+// trousseau. Sinon, passer du mode Bureau (trousseau de KDE) au mode Jeu
+// (pas de trousseau) déconnecterait le joueur à chaque fois.
+
+#[cfg(unix)]
+fn token_in_file() -> bool {
+    TOKEN_IN_FILE || token_file().exists()
+}
+
 fn load_token() -> Option<String> {
     #[cfg(unix)]
-    if TOKEN_IN_FILE {
+    if token_in_file() {
         return file_store::load(&token_file());
     }
     keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?.get_password().ok()
@@ -271,18 +283,25 @@ fn load_token() -> Option<String> {
 
 fn save_token(rt: &str) -> Result<()> {
     #[cfg(unix)]
-    if TOKEN_IN_FILE {
+    if token_in_file() {
         return file_store::save(&token_file(), rt).context("impossible d'enregistrer le compte");
     }
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?
-        .set_password(rt)
-        .context("impossible d'enregistrer le compte dans le trousseau du système")
+    let stored = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).and_then(|e| e.set_password(rt));
+    #[cfg(unix)]
+    if let Err(e) = &stored {
+        eprintln!("trousseau indisponible ({e}) : compte enregistré dans {}", token_file().display());
+        return file_store::save(&token_file(), rt).context("impossible d'enregistrer le compte");
+    }
+    stored.context("impossible d'enregistrer le compte dans le trousseau du système")
 }
 
 fn delete_token() {
     #[cfg(unix)]
-    if TOKEN_IN_FILE {
-        return file_store::delete(&token_file());
+    {
+        file_store::delete(&token_file());
+        if TOKEN_IN_FILE {
+            return;
+        }
     }
     if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
         let _ = entry.delete_credential();
@@ -451,7 +470,7 @@ mod tests_jeton {
     use super::file_store;
     use std::os::unix::fs::PermissionsExt;
 
-    /// Stockage du jeton sur macOS : fichier privé, remplacé d'un coup.
+    /// Stockage du jeton sur macOS et sur Linux sans trousseau : fichier privé, remplacé d'un coup.
     #[test]
     fn jeton_dans_un_fichier_prive() {
         let dir = std::env::temp_dir().join(format!("turicraft-jeton-{}", std::process::id()));
