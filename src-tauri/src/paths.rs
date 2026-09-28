@@ -10,7 +10,8 @@
 //! ```
 //!
 //! `<données>` : `~/.local/share` (Linux), `~/Library/Application Support`
-//! (macOS), `%APPDATA%` (Windows).
+//! (macOS), `%APPDATA%` (Windows) — ou `%LOCALAPPDATA%` quand `%APPDATA%` est
+//! redirigé sur un partage réseau (voir `is_network`).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -24,6 +25,16 @@ pub fn safe_join(base: &Path, rel: impl AsRef<Path>) -> anyhow::Result<PathBuf> 
         anyhow::bail!("chemin refusé (hors du dossier prévu) : {}", rel.display());
     }
     Ok(base.join(rel))
+}
+
+/// Chemin réseau Windows (`\\serveur\partage\…`) : `%APPDATA%` redirigé par
+/// un profil itinérant (PC d'école, d'entreprise). L'installeur NeoForge y
+/// meurt (« URI has an authority component » : `new File(URL de son jar)`
+/// refuse `file://serveur/…`), et 2 Go de jeu n'ont rien à faire sur le
+/// réseau. `%LOCALAPPDATA%`, lui, reste local par conception.
+fn is_network(p: &Path) -> bool {
+    let s = p.to_string_lossy().replace('/', "\\");
+    s.starts_with(r"\\?\UNC\") || (s.starts_with(r"\\") && !s.starts_with(r"\\?\") && !s.starts_with(r"\\.\"))
 }
 
 #[derive(Clone, Debug)]
@@ -41,7 +52,12 @@ impl Paths {
         if let Some(p) = std::env::var_os("TURICRAFT_HOME") {
             return Self::new(PathBuf::from(p));
         }
-        let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+        let mut base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+        if is_network(&base) {
+            if let Some(local) = dirs::data_local_dir().filter(|p| !is_network(p)) {
+                base = local;
+            }
+        }
         Self::new(base.join("turicraft"))
     }
 
@@ -76,8 +92,17 @@ impl Paths {
 
 #[cfg(test)]
 mod tests {
-    use super::safe_join;
+    use super::{is_network, safe_join};
     use std::path::Path;
+
+    #[test]
+    fn appdata_sur_le_reseau() {
+        assert!(is_network(Path::new(r"\\srv-eleves\profils$\joueur\AppData\Roaming")));
+        assert!(is_network(Path::new(r"\\?\UNC\srv\partage\AppData")));
+        assert!(!is_network(Path::new(r"C:\Users\joueur\AppData\Roaming")));
+        assert!(!is_network(Path::new(r"\\?\C:\Users\joueur")));
+        assert!(!is_network(Path::new("/home/joueur/.local/share")));
+    }
 
     #[test]
     fn chemins_venus_du_reseau() {
