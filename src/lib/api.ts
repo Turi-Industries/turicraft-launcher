@@ -175,6 +175,12 @@ export interface SnakeEntry {
 	score: number;
 	date: string;
 }
+/** Tout le classement (page Classement). `complete` faux : le service ne
+ *  donne encore que ses 10 premiers. */
+export interface SnakeRanking {
+	entries: SnakeEntry[];
+	complete: boolean;
+}
 export interface SnakeSubmitted {
 	top: SnakeEntry[];
 	/** Place du joueur dans tout le classement (1 = premier). */
@@ -238,6 +244,8 @@ export type CrashReportStatus = 'sending' | 'sent' | 'failed' | 'manual';
 
 export const api = {
 	overview: () => invoke<Overview>('overview'),
+	/** Les réglages seuls, sans attendre la mesure de la machine. */
+	settingsNow: () => invoke<Settings>('settings_now'),
 	saveSettings: (settings: Settings) => invoke<void>('save_settings', { settings }),
 	presets: () => invoke<PresetsView>('presets_view'),
 	serverStatus: () => invoke<ServerStatus>('server_status'),
@@ -261,6 +269,9 @@ export const api = {
 	openFolder: (which: Folder) => invoke<void>('open_folder', { which }),
 	openUrl: (url: string) => invoke<void>('open_url', { url }),
 	snakeTop: () => invoke<SnakeEntry[]>('snake_top'),
+	snakeRanking: () => invoke<SnakeRanking>('snake_ranking'),
+	/** Skin d'un joueur (data URL), pour sa tête. */
+	playerSkin: (uuid: string) => invoke<string>('player_skin', { uuid }),
 	/** Au nom du compte connecté, vérifié par Mojang. */
 	snakeSubmit: (score: number) => invoke<SnakeSubmitted>('snake_submit', { score }),
 	/** Résultat par l'événement `crash_report`. */

@@ -58,6 +58,13 @@ STATES=(
   "jouer-3d-80|vue=jouer&angle=80"
   "jouer-3d-160|vue=jouer&angle=160"
   "jouer-snake-classement-hs|vue=jouer&etat=lancement&classement=0"
+  "classement|vue=classement"
+  "classement-long|vue=classement&classement=long"
+  "classement-top10|vue=classement&classement=top10"
+  "classement-vide|vue=classement&classement=vide"
+  "classement-hs|vue=classement&classement=0"
+  "classement-sans-compte|vue=classement&compte=0"
+  "jouer-snake|vue=jouer&etat=lancement"
 )
 
 for s in "${STATES[@]}"; do

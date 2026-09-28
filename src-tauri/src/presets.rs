@@ -347,13 +347,47 @@ pub struct Resolved {
     pub adapt_files: BTreeMap<String, FileEdit>,
 }
 
-pub async fn fetch(pack_url: &str) -> Result<PresetsFile> {
+/// Quelle fraîcheur pour presets.toml.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Fetch {
+    /// Relu sur le serveur : avant « Jouer » et « Réparer ».
+    Fresh,
+    /// Celui lu il y a moins de 5 min, sinon relu ; sans réseau, la dernière
+    /// copie enregistrée. L'écran Qualité le redemande à chaque clic : relu
+    /// à chaque fois, chaque clic attendait le serveur du pack, et l'écran
+    /// entier disparaissait hors ligne.
+    Cached,
+}
+
+const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+pub async fn fetch(paths: &Paths, pack_url: &str, how: Fetch) -> Result<PresetsFile> {
+    static MEMORY: std::sync::Mutex<Option<(String, std::time::Instant, String)>> = std::sync::Mutex::new(None);
     let url = pack_url
         .rsplit_once('/')
         .map(|(base, _)| format!("{base}/turicraft/presets.toml"))
         .ok_or_else(|| anyhow!("URL du pack invalide : {pack_url}"))?;
-    let text = crate::net::fetch_text(&crate::net::client(), &url).await.context("lecture de presets.toml")?;
-    parse(&text)
+    if how == Fetch::Cached {
+        let recent = MEMORY.lock().unwrap().as_ref().filter(|(u, at, _)| *u == url && at.elapsed() < CACHE_TTL).map(|(_, _, t)| t.clone());
+        if let Some(text) = recent {
+            return parse(&text);
+        }
+    }
+    let disk = paths.root.join("presets.toml");
+    let text = match crate::net::fetch_text(&crate::net::client(), &url).await.context("lecture de presets.toml") {
+        Ok(text) => {
+            // Copie pour les ouvertures hors ligne ; seulement si le fichier est lisible.
+            if parse(&text).is_ok() {
+                let _ = std::fs::create_dir_all(&paths.root).and_then(|_| std::fs::write(&disk, &text));
+            }
+            text
+        }
+        Err(e) if how == Fetch::Cached => std::fs::read_to_string(&disk).map_err(|_| e)?,
+        Err(e) => return Err(e),
+    };
+    let file = parse(&text)?;
+    *MEMORY.lock().unwrap() = Some((url, std::time::Instant::now(), text));
+    Ok(file)
 }
 
 pub fn parse(text: &str) -> Result<PresetsFile> {

@@ -4778,6 +4778,8 @@ dependencies = [
  "toml 0.8.23",
  "toml_edit 0.22.27",
  "uuid",
+ "webview2-com",
+ "windows-core 0.61.2",
 ]
 
 [[package]]

@@ -27,6 +27,7 @@
 
 	$effect(() => {
 		void shown.length;
+		void L.logSeq;
 		if (follow) tick().then(() => box && (box.scrollTop = box.scrollHeight));
 	});
 

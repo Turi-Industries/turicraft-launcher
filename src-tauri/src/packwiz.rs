@@ -43,8 +43,42 @@ fn parse_counter(line: &str) -> Option<(u64, u64)> {
     Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
 }
 
-pub async fn sync(paths: &Paths, java: &Path, pack_url: &str, reporter: &dyn Reporter) -> Result<()> {
+/// Le pack installé est-il exactement celui de ce `pack.toml` ? Même test que
+/// packwiz-installer avant de s'arrêter sur « Modpack is already up to
+/// date! » (UpdateManager, relu dans le bytecode de la version embarquée) :
+/// même côté (client), même empreinte de pack.toml, et chaque fichier retenu
+/// encore là. Vrai : inutile de démarrer Java pour l'entendre le dire (une
+/// seconde ici, plusieurs sur un petit PC).
+pub fn up_to_date(paths: &Paths, pack_toml: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    let instance = paths.instance();
+    let Some(manifest) = std::fs::read_to_string(instance.join("packwiz.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    else {
+        return false;
+    };
+    let hash = &manifest["packFileHash"];
+    if manifest["cachedSide"] != "client" || hash["type"] != "sha256" {
+        return false;
+    }
+    if !hash["value"].as_str().is_some_and(|v| v.eq_ignore_ascii_case(&hex::encode(Sha256::digest(pack_toml.as_bytes())))) {
+        return false;
+    }
+    let Some(files) = manifest["cachedFiles"].as_object() else { return false };
+    files.values().all(|f| {
+        let other_side = f["onlyOtherSide"].as_bool().unwrap_or(false);
+        let wanted = !f["isOptional"].as_bool().unwrap_or(false) || f["optionValue"].as_bool().unwrap_or(true);
+        other_side || !wanted || f["cachedLocation"].as_str().is_some_and(|l| instance.join(l).exists())
+    })
+}
+
+/// `pack_toml` : le pack.toml déjà lu pour ce lancement. S'il correspond au
+/// pack installé (`up_to_date`), packwiz-installer n'est pas lancé.
+pub async fn sync(paths: &Paths, java: &Path, pack_url: &str, pack_toml: Option<&str>, reporter: &dyn Reporter) -> Result<()> {
     reporter.stage("pack", "Mods et configuration du pack");
+    if pack_toml.is_some_and(|t| up_to_date(paths, t)) {
+        reporter.log("pack déjà à jour");
+        return Ok(());
+    }
     ensure_tools(paths)?;
     let instance = paths.instance();
     std::fs::create_dir_all(&instance)?;
@@ -155,15 +189,24 @@ pub fn pack_hashes(paths: &Paths, files: &std::collections::BTreeSet<String>) ->
         .collect()
 }
 
-pub async fn pack_versions(pack_url: &str) -> Result<(String, String)> {
+/// pack.toml lu une fois par lancement : versions demandées, et texte tel
+/// quel (son empreinte dit si le pack installé est à jour : `up_to_date`).
+pub struct PackToml {
+    pub text: String,
+    pub minecraft: String,
+    pub neoforge: String,
+}
+
+pub async fn pack_toml(pack_url: &str) -> Result<PackToml> {
     let text = crate::net::fetch_text(&crate::net::client(), pack_url).await.context("lecture de pack.toml")?;
     let v: toml::Value = toml::from_str(&text).context("pack.toml invalide")?;
     let versions = v.get("versions").context("pack.toml sans [versions]")?;
     let get = |k: &str| versions.get(k).and_then(|x| x.as_str()).map(String::from);
-    Ok((
-        get("minecraft").context("version de Minecraft absente de pack.toml")?,
-        get("neoforge").context("version de NeoForge absente de pack.toml")?,
-    ))
+    Ok(PackToml {
+        minecraft: get("minecraft").context("version de Minecraft absente de pack.toml")?,
+        neoforge: get("neoforge").context("version de NeoForge absente de pack.toml")?,
+        text,
+    })
 }
 
 /// Version du pack affichée par le launcher (`version` de pack.toml).
@@ -250,6 +293,44 @@ mod tests {
         let h = pack_hashes(&paths, &wanted);
         assert_eq!(h.len(), 1);
         assert_eq!(h["config/DistantHorizons.toml"], "abc");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// « Déjà à jour » comme packwiz-installer : même pack.toml, même côté,
+    /// fichiers voulus présents. Le reste relance la synchronisation.
+    #[test]
+    fn pack_deja_a_jour() {
+        use sha2::{Digest, Sha256};
+        let dir = std::env::temp_dir().join(format!("turicraft-pw-ajour-{}", std::process::id()));
+        let paths = Paths::new(dir.clone());
+        let inst = paths.instance();
+        std::fs::create_dir_all(inst.join("mods")).unwrap();
+        std::fs::write(inst.join("mods/a.jar"), b"a").unwrap();
+        let toml = "name = \"Turi Craft\"\nversion = \"0.17.1\"\n";
+        let manifest = |hash: &str, side: &str| {
+            format!(
+                r#"{{"packFileHash":{{"type":"sha256","value":"{hash}"}},"cachedSide":"{side}","cachedFiles":{{
+                "mods/a.pw.toml":{{"cachedLocation":"mods/a.jar","optionValue":true}},
+                "mods/opt.pw.toml":{{"cachedLocation":"mods/opt.jar","isOptional":true,"optionValue":false}},
+                "mods/serveur.pw.toml":{{"onlyOtherSide":true,"optionValue":true}}}}}}"#
+            )
+        };
+        let good = hex::encode(Sha256::digest(toml.as_bytes()));
+        let write = |m: String| std::fs::write(inst.join("packwiz.json"), m).unwrap();
+
+        write(manifest(&good, "client"));
+        assert!(up_to_date(&paths, toml), "même pack, fichiers là, optionnel coupé absent");
+        assert!(!up_to_date(&paths, "name = \"Turi Craft\"\nversion = \"0.17.2\"\n"), "nouvelle version du pack");
+        write(manifest(&good, "server"));
+        assert!(!up_to_date(&paths, toml), "autre côté");
+        write(manifest(&good, "client").replace(r#""optionValue":false"#, r#""optionValue":true"#));
+        assert!(!up_to_date(&paths, toml), "optionnel allumé mais absent");
+        write(manifest(&good, "client"));
+        std::fs::remove_file(inst.join("mods/a.jar")).unwrap();
+        assert!(!up_to_date(&paths, toml), "mod supprimé à la main");
+        // Empreintes vidées (Réparer, mods optionnels changés) : resynchronisation.
+        write(r#"{"cachedSide":"client","cachedFiles":{}}"#.into());
+        assert!(!up_to_date(&paths, toml));
         std::fs::remove_dir_all(&dir).ok();
     }
 

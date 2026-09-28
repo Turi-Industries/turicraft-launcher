@@ -6,6 +6,7 @@
 	import Quality from '$lib/views/Quality.svelte';
 	import Options from '$lib/views/Options.svelte';
 	import Journal from '$lib/views/Journal.svelte';
+	import Classement from '$lib/views/Classement.svelte';
 	import UpdateDialog from '$lib/views/UpdateDialog.svelte';
 
 	onMount(() => L.start());
@@ -20,6 +21,8 @@
 			<Quality />
 		{:else if L.view === 'options'}
 			<Options />
+		{:else if L.view === 'classement'}
+			<Classement />
 		{:else}
 			<Journal />
 		{/if}

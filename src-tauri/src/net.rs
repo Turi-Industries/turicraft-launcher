@@ -14,13 +14,22 @@ use sha2::{Digest, Sha256};
 
 use crate::progress::Reporter;
 
+/// Un seul client pour tout le launcher (le cloner ne coûte rien) : ses
+/// connexions restent ouvertes d'une requête à l'autre. Un client neuf par
+/// appel refaisait la poignée de main TLS à chaque fois — une dizaine
+/// d'allers-retours de plus à chaque « Jouer » (pack, préréglages, Mojang).
 pub fn client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .user_agent(crate::config::USER_AGENT)
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(300))
-        .build()
-        .expect("client HTTP")
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .user_agent(crate::config::USER_AGENT)
+                .connect_timeout(Duration::from_secs(15))
+                .timeout(Duration::from_secs(300))
+                .build()
+                .expect("client HTTP")
+        })
+        .clone()
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,13 +53,9 @@ pub async fn reachability(pack_url: &str) -> Reach {
 }
 
 async fn probe(pack_url: &str, references: &[&str]) -> Reach {
-    let c = reqwest::Client::builder()
-        .user_agent(crate::config::USER_AGENT)
-        .timeout(Duration::from_secs(5))
-        .build()
-        .expect("client HTTP");
+    let c = client();
     let answers = |url: &str| {
-        let req = c.head(url);
+        let req = c.head(url).timeout(Duration::from_secs(5));
         async move { req.send().await.is_ok() }
     };
     let (pack, refs) = futures::join!(
@@ -102,12 +107,15 @@ pub async fn fetch_json<T: serde::de::DeserializeOwned>(client: &reqwest::Client
 }
 
 fn file_hash_matches(path: &Path, hash: &Hash) -> Result<bool> {
-    let data = std::fs::read(path)?;
-    Ok(match hash {
-        Hash::Sha1(expected) => hex::encode(Sha1::digest(&data)).eq_ignore_ascii_case(expected),
-        Hash::Sha256(expected) => hex::encode(Sha256::digest(&data)).eq_ignore_ascii_case(expected),
+    Ok(bytes_match(&std::fs::read(path)?, hash))
+}
+
+fn bytes_match(data: &[u8], hash: &Hash) -> bool {
+    match hash {
+        Hash::Sha1(expected) => hex::encode(Sha1::digest(data)).eq_ignore_ascii_case(expected),
+        Hash::Sha256(expected) => hex::encode(Sha256::digest(data)).eq_ignore_ascii_case(expected),
         Hash::None => true,
-    })
+    }
 }
 
 /// Réparation en cours : chaque fichier est relu et comparé à son empreinte,
@@ -174,10 +182,11 @@ async fn download_once(client: &reqwest::Client, d: &Download, part: &Path) -> R
         bail!("HTTP {}", resp.status());
     }
     let bytes = resp.bytes().await?;
-    tokio::fs::write(part, &bytes).await?;
-    if !file_hash_matches(part, &d.hash)? {
+    // Vérifié en mémoire : pas de relecture du fichier juste écrit.
+    if !bytes_match(&bytes, &d.hash) {
         bail!("empreinte incorrecte");
     }
+    tokio::fs::write(part, &bytes).await?;
     Ok(())
 }
 

@@ -42,7 +42,8 @@ pub struct Prepared {
 pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Result<Prepared> {
     let pack_url = crate::settings::pack_url();
     r.stage("versions", "Lecture du pack");
-    let (mc, neo) = packwiz::pack_versions(&pack_url).await?;
+    let pack = packwiz::pack_toml(&pack_url).await?;
+    let (mc, neo) = (pack.minecraft.clone(), pack.neoforge.clone());
     r.log(&format!("Minecraft {mc}, NeoForge {neo}"));
 
     let java = java::ensure_java(paths, config::JAVA_COMPONENT, r).await?;
@@ -51,16 +52,17 @@ pub async fn prepare(paths: &Paths, settings: &Settings, r: &dyn Reporter) -> Re
     let profile = minecraft::resolve_profile(paths, &id)?;
     minecraft::ensure_libraries(paths, &profile, r).await?;
 
-    packwiz::sync(paths, &java, &pack_url, r).await?;
+    packwiz::sync(paths, &java, &pack_url, Some(&pack.text), r).await?;
 
     r.stage("presets", "Préréglage");
-    let file = presets::fetch(&pack_url).await?;
+    // Relu juste avant par l'appelant (import_before_launch) : sa copie suffit.
+    let file = presets::fetch(paths, &pack_url, presets::Fetch::Cached).await?;
     let hw = hardware::detect();
     let resolved = presets::resolve(&file, &hw, settings);
     let changed = packwiz::set_optional(paths, &file.all_optional(), &file.enabled_optional(&resolved.groups))?;
     if changed {
         r.log("mods optionnels modifiés : nouvelle synchronisation");
-        packwiz::sync(paths, &java, &pack_url, r).await?;
+        packwiz::sync(paths, &java, &pack_url, None, r).await?;
     }
     let aside = packwiz::set_aside_unknown_mods(paths)?;
     if !aside.is_empty() {

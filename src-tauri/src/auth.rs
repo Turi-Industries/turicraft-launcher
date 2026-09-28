@@ -45,12 +45,24 @@ struct MsError {
 /// Ce qu'il faut pour lancer le jeu. `access_token` ne sort du launcher que
 /// vers la ligne de commande du jeu et vers Mojang (sessionserver, pour
 /// prouver le pseudo au classement du Snake : snake.rs), jamais ailleurs.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Session {
     pub name: String,
     pub uuid: String,
     pub access_token: String,
     pub xuid: String,
+    /// Fin de validité du jeton Minecraft (24 h chez Mojang), avec une heure
+    /// de marge. `None` : inconnue, la session n'est pas réutilisée.
+    pub expires_at: Option<Instant>,
+}
+
+impl Session {
+    /// Encore bonne pour lancer le jeu : « Jouer » la reprend au lieu de
+    /// refaire les cinq requêtes Microsoft → Xbox → Minecraft (et de
+    /// risquer la limite de Mojang sur `login_with_xbox`).
+    pub fn still_valid(&self) -> bool {
+        self.expires_at.is_some_and(|t| Instant::now() < t)
+    }
 }
 
 fn http() -> reqwest::Client {
@@ -351,9 +363,17 @@ pub async fn refresh(client_id: &str) -> Result<Session> {
         ])
         .send()
         .await?;
-    if !resp.status().is_success() {
-        delete_token();
-        bail!("la session a expiré, reconnecte-toi");
+    let status = resp.status();
+    if !status.is_success() {
+        let error = resp.json::<MsError>().await.map(|e| e.error).unwrap_or_default();
+        // Seul un jeton refusé veut dire « reconnecte-toi ». Une panne ou une
+        // limite de Microsoft (5xx, 429) effaçait aussi le compte : le joueur
+        // devait se reconnecter pour rien.
+        if matches!(error.as_str(), "invalid_grant" | "interaction_required") {
+            delete_token();
+            bail!("la session a expiré, reconnecte-toi");
+        }
+        bail!("Microsoft ne répond pas comme prévu (HTTP {status} {error}). Réessaie dans quelques minutes : ton compte reste enregistré.");
     }
     session_from_ms(resp.json().await?).await
 }
@@ -410,16 +430,24 @@ async fn session_from_ms(ms: MsToken) -> Result<Session> {
     let xuid = xsts["DisplayClaims"]["xui"][0]["xid"].as_str().unwrap_or_default().to_string();
 
     // Minecraft
-    let mc: serde_json::Value = c
+    let resp = c
         .post("https://api.minecraftservices.com/authentication/login_with_xbox")
         .json(&json!({ "identityToken": format!("XBL3.0 x={uhs};{xsts_token}") }))
         .send()
-        .await?
+        .await?;
+    if resp.status().as_u16() == 429 {
+        bail!("Minecraft limite les connexions pour l'instant : réessaie dans quelques minutes");
+    }
+    let mc: serde_json::Value = resp
         .error_for_status()
         .context("Minecraft Services (le client ID est-il approuvé par Mojang ?)")?
         .json()
         .await?;
     let access_token = mc["access_token"].as_str().ok_or_else(|| anyhow!("Minecraft : pas de jeton"))?.to_string();
+    let expires_at = mc["expires_in"]
+        .as_u64()
+        .and_then(|s| s.checked_sub(3600))
+        .map(|s| Instant::now() + Duration::from_secs(s));
 
     let resp = c
         .get("https://api.minecraftservices.com/minecraft/profile")
@@ -435,6 +463,7 @@ async fn session_from_ms(ms: MsToken) -> Result<Session> {
         uuid: profile["id"].as_str().unwrap_or_default().to_string(),
         access_token,
         xuid,
+        expires_at,
     })
 }
 
@@ -447,7 +476,7 @@ pub fn offline_session(name: &str) -> Session {
     h[6] = (h[6] & 0x0f) | 0x30;
     h[8] = (h[8] & 0x3f) | 0x80;
     let uuid = uuid::Uuid::from_bytes(h);
-    Session { name: name.to_string(), uuid: uuid.simple().to_string(), access_token: "0".into(), xuid: "0".into() }
+    Session { name: name.to_string(), uuid: uuid.simple().to_string(), access_token: "0".into(), xuid: "0".into(), expires_at: None }
 }
 
 #[cfg(test)]

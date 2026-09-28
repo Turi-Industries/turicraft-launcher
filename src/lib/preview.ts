@@ -3,11 +3,11 @@
 // (scripts/captures.sh). Jamais dans une version
 // publiée : n'est chargé que si Tauri est absent.
 //
-// L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
+// L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal|classement
 // &etat=repos|prep|lancement|jeu|crash|pilote|integree|reparation|repare|raz|raz-fait|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
 // &signal=ouvert|deja|vide|envoi|echec (« Envoyer un rapport » de l'écran Journal)
-// &classement=0 (classement du Snake injoignable) &journal=1 (journal rempli) &dossiers=1 (menu Dossiers ouvert) &angle=35 (« Jouer » figé sous cet angle)
+// &classement=0 (classement du Snake injoignable) &classement=vide|top10|long (page Classement) &journal=1 (journal rempli) &dossiers=1 (menu Dossiers ouvert) &angle=35 (« Jouer » figé sous cet angle)
 
 import type { LauncherEvent } from './api';
 
@@ -186,6 +186,24 @@ export function previewError(cb: (message: string) => void) {
 export async function previewInvoke(cmd: string): Promise<unknown> {
 	const p = params();
 	switch (cmd) {
+		case 'settings_now':
+			return settings();
+		case 'player_skin':
+			throw new Error('pas de skin'); // l'initiale, comme sans réseau
+		case 'snake_ranking': {
+			const c = p.get('classement');
+			if (c === '0') throw new Error('classement injoignable');
+			if (c === 'vide') return { entries: [], complete: true };
+			const names = ['Turi_Boss', 'Pikachu_Fan', 'CreateMaster', 'Aeronaute', 'Eevee42', 'Joueur_Turi', 'Steve', 'Alex', 'Mineur_Fou', 'Redstone_Kid', 'Blaziken', 'Dracaufeu_77', 'PetitCactus', 'Nuit_Blanche', 'Zeycha', 'Lucario'];
+			const n = c === 'long' ? names.length : c === 'top10' ? 10 : 8;
+			const entries = names.slice(0, n).map((name, i) => ({
+				name,
+				uuid: name === 'Joueur_Turi' ? '00000000000040008000000000000000' : `u${i}`,
+				score: Math.max(3, 87 - i * 7 - (i % 3)),
+				date: `2026-09-${String(28 - (i % 5)).padStart(2, '0')}`
+			}));
+			return { entries, complete: c !== 'top10' };
+		}
 		case 'overview':
 			return {
 				settings: settings(),
@@ -275,7 +293,12 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 				['Eevee42', 22],
 				['Steve', 17],
 				['Alex', 9]
-			].map(([name, score], i) => ({ name, uuid: `u${i}`, score, date: '2026-09-26' }));
+			].map(([name, score], i) => ({
+				name,
+				uuid: name === 'Joueur_Turi' ? '00000000000040008000000000000000' : `u${i}`,
+				score,
+				date: '2026-09-26'
+			}));
 			if (p.get('classement') === '0') throw new Error('classement injoignable');
 			return cmd === 'snake_top' ? top : { top, rank: 4, best: 38 };
 		}

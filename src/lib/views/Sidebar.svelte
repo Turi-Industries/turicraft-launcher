@@ -5,6 +5,7 @@
 	const NAV: { id: View; label: string; icon: string }[] = [
 		{ id: 'jouer', label: 'Jouer', icon: 'M6 4l12 8-12 8z' },
 		{ id: 'qualite', label: 'Qualité', icon: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4' },
+		{ id: 'classement', label: 'Classement', icon: 'M7 4h10v5a5 5 0 01-10 0zM7 6H4v2a3 3 0 003 3M17 6h3v2a3 3 0 01-3 3M12 14v4M8 20h8' },
 		{ id: 'options', label: 'Options', icon: 'M12 8a4 4 0 100 8 4 4 0 000-8zM12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2' },
 		{ id: 'journal', label: 'Journal', icon: 'M5 4h14v16H5zM8 8h8M8 12h8M8 16h5' }
 	];

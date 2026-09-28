@@ -21,7 +21,7 @@ import {
 } from './api';
 import { isPreview } from './preview';
 
-export type View = 'jouer' | 'qualite' | 'options' | 'journal';
+export type View = 'jouer' | 'qualite' | 'options' | 'journal' | 'classement';
 
 type Milestone = { index: number; count: number; label: string; elapsed_ms: number; expected_ms: number };
 
@@ -62,6 +62,10 @@ class LauncherState {
 	progress = $state({ done: 0, total: 0 });
 	lastLog = $state('');
 	logs = $state<LogLine[]>([]);
+	/** Nombre de lignes reçues depuis l'ouverture : le Journal suit les
+	 *  nouvelles lignes grâce à lui (le nombre de lignes GARDÉES plafonne à
+	 *  500, et le Journal cessait alors de descendre tout seul). */
+	logSeq = $state(0);
 	milestone = $state<Milestone | null>(null);
 	launchStart = $state(0);
 	now = $state(Date.now());
@@ -102,19 +106,24 @@ class LauncherState {
 		if (this.inGame) return 100;
 		const m = this.milestone;
 		if (m) {
-			if (m.expected_ms > 0) return Math.min(99, ((this.now - this.launchStart) / m.expected_ms) * 100);
+			if (m.expected_ms > 0) return Math.max(0, Math.min(99, ((this.now - this.launchStart) / m.expected_ms) * 100));
 			return ((m.index + 1) / m.count) * 100;
 		}
 		return this.progress.total > 0 ? (this.progress.done / this.progress.total) * 100 : 0;
 	});
 
 	log(text: string) {
+		this.logSeq++;
 		this.logs.push({ t: Date.now(), text, kind: kindOf(text) });
 		if (this.logs.length > 500) this.logs.splice(0, this.logs.length - 500);
 	}
 
 	async refreshOverview() {
-		this.ov = await api.overview();
+		try {
+			this.ov = await api.overview();
+		} catch {
+			return; // la mesure de la machine a échoué : l'écran garde ce qu'il a
+		}
 		this.s = this.ov.settings;
 		this.refreshSkin();
 	}
@@ -328,7 +337,7 @@ class LauncherState {
 	start(): () => void {
 		const p = new URLSearchParams(location.search);
 		const vue = p.get('vue');
-		if (vue === 'jouer' || vue === 'qualite' || vue === 'options' || vue === 'journal') this.view = vue;
+		if (vue === 'jouer' || vue === 'qualite' || vue === 'options' || vue === 'journal' || vue === 'classement') this.view = vue;
 		if (isPreview && ['prep', 'lancement', 'jeu', 'reparation'].includes(p.get('etat') ?? '')) this.running = true;
 		if (isPreview && p.get('etat') === 'reparation') this.repairing = true;
 		if (isPreview && p.get('etat') === 'raz') this.resetAsk = true;
@@ -352,9 +361,27 @@ class LauncherState {
 			].forEach((text, i) => this.logs.push({ t: t0 + i * 7000, text, kind: kindOf(text) }));
 		}
 
+		// Réglages (donc le compte) tout de suite : « Jouer » s'affiche sans
+		// attendre la mesure de la machine, faite par overview.
+		api.settingsNow()
+			.then((s) => {
+				if (this.s) return;
+				this.s = s;
+				this.refreshSkin();
+			})
+			.catch(() => {});
 		this.refreshOverview().then(() => this.refreshPresets());
-		const refreshServer = () => api.serverStatus().then((s) => (this.server = s));
+		// Serveur : toutes les 30 s, sauf launcher caché ou réduit (le jeu
+		// tourne, personne ne regarde) ; aussitôt revenu, tout de suite.
+		const refreshServer = () => {
+			if (document.visibilityState === 'hidden') return;
+			api.serverStatus()
+				.then((s) => (this.server = s))
+				.catch(() => {});
+		};
 		refreshServer();
+		const onVisible = () => document.visibilityState === 'visible' && refreshServer();
+		document.addEventListener('visibilitychange', onVisible);
 		api.checkUpdates().then((u) => (this.updates = u)).catch(() => {});
 		api.news().then((n) => (this.news = n)).catch(() => {});
 		api.launcherUpdateCheck()
@@ -368,7 +395,14 @@ class LauncherState {
 		if (isPreview && p.get('etat') === 'code') this.loginWithCode();
 		if (isPreview && p.get('etat') === 'lien') this.login();
 
-		const timers = [setInterval(refreshServer, 30_000), setInterval(() => (this.now = Date.now()), 250)];
+		// L'horloge de la barre de progression ne tourne que pendant un
+		// lancement : au repos, elle réveillait l'interface 4 fois par seconde.
+		const timers = [
+			setInterval(refreshServer, 30_000),
+			setInterval(() => {
+				if (this.running && !this.inGame) this.now = Date.now();
+			}, 250)
+		];
 		const unlisten = [
 			onEvent((e) => {
 				switch (e.kind) {
@@ -376,7 +410,10 @@ class LauncherState {
 						this.stage = e.label;
 						this.progress = { done: 0, total: 0 };
 						this.log(`— ${e.label}`);
-						if (e.id === 'launch') this.launchStart = Date.now() - (isPreview ? 36000 : 0);
+						if (e.id === 'launch') {
+							this.now = Date.now();
+							this.launchStart = this.now - (isPreview ? 36000 : 0);
+						}
 						break;
 					case 'progress':
 						this.progress = { done: e.done, total: e.total };
@@ -449,6 +486,7 @@ class LauncherState {
 			timers.forEach(clearInterval);
 			unlisten.forEach((u) => u.then((f) => f()));
 			window.removeEventListener('keydown', onKey);
+			document.removeEventListener('visibilitychange', onVisible);
 		};
 	}
 }

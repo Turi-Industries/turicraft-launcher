@@ -66,6 +66,24 @@ pub async fn top(pack_url: &str) -> Result<Vec<Entry>> {
     Ok(check(resp).await?.json::<Top>().await?.top)
 }
 
+/// Tout le classement (page « Classement » du launcher). Un service qui ne
+/// connaît pas encore `/all` (HTTP 404) donne ses 10 meilleurs : `complete`
+/// le dit à l'interface.
+pub async fn ranking(pack_url: &str) -> Result<Ranking> {
+    let resp = crate::net::client().get(format!("{}/all", base(pack_url))).send().await.context("classement injoignable")?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Ranking { entries: top(pack_url).await?, complete: false });
+    }
+    Ok(Ranking { entries: check(resp).await?.json::<Top>().await?.top, complete: true })
+}
+
+#[derive(Serialize, Debug)]
+pub struct Ranking {
+    pub entries: Vec<Entry>,
+    /// Faux : seulement les 10 premiers (service pas encore à jour).
+    pub complete: bool,
+}
+
 pub async fn submit(pack_url: &str, session: &Session, score: u32) -> Result<Submitted> {
     let http = crate::net::client();
     let base = base(pack_url);

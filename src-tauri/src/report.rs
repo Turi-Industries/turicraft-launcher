@@ -379,7 +379,7 @@ mod tests {
         let report_path = game.join("crash-reports/crash-2026-09-27_12.00.00-client.txt");
         std::fs::write(&report_path, "Description: Rendering screen\n\njava.lang.NullPointerException\n").unwrap();
         std::fs::write(game.join("logs/latest.log"), "[Render thread/ERROR] boum --accessToken eyJsecretjeton\n").unwrap();
-        let session = Session { name: "Joueur".into(), uuid: "u".into(), access_token: "eyJsecretjeton".into(), xuid: String::new() };
+        let session = Session { name: "Joueur".into(), uuid: "u".into(), access_token: "eyJsecretjeton".into(), ..Default::default() };
         let crash = CrashSummary {
             description: "Rendering screen".into(),
             cause: "java.lang.NullPointerException".into(),
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn jeton_et_dossier_personnel_masques() {
-        let session = Session { name: "Jean".into(), uuid: "u".into(), access_token: "eyJsecretjeton".into(), xuid: String::new() };
+        let session = Session { name: "Jean".into(), uuid: "u".into(), access_token: "eyJsecretjeton".into(), ..Default::default() };
         let scrub = Scrub::new(Some(&session.access_token));
         let home = dirs::home_dir().unwrap().display().to_string();
         let out = scrub.apply(&format!("--accessToken eyJsecretjeton dans {home}/turicraft/instance"));

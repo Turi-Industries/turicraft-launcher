@@ -86,6 +86,33 @@ fn keep_on_top(app: &AppHandle, on: bool) {
     }
 }
 
+/// Pendant que le jeu tourne, le launcher attend en arrière-plan : sous
+/// Windows, WebView2 est prié de rendre sa mémoire (niveau « Low », fait
+/// pour les applications en arrière-plan), au profit du jeu. Rétabli quand le
+/// jeu se ferme. Ailleurs (WebKitGTK, WKWebView), rien d'équivalent.
+fn webview_memory(app: &AppHandle, low: bool) {
+    #[cfg(windows)]
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.with_webview(move |webview| {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+            };
+            use windows_core::Interface;
+            let level = if low { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+            // SAFETY : appelé par Tauri sur le fil de la fenêtre, contrôleur
+            // valide. WebView2 trop ancien (avant 1.0.1774) : pas d'interface
+            // _19, on ne fait rien.
+            unsafe {
+                if let Ok(core) = webview.controller().CoreWebView2().and_then(|c| c.cast::<ICoreWebView2_19>()) {
+                    let _ = core.SetMemoryUsageTargetLevel(level);
+                }
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = (app, low);
+}
+
 impl Reporter for TauriReporter {
     fn send(&self, event: Event) {
         match &event {
@@ -111,6 +138,7 @@ impl Reporter for TauriReporter {
             Event::GameReady { .. } => {
                 self.taskbar(ProgressBarStatus::None, None);
                 keep_on_top(&self.app, false);
+                webview_memory(&self.app, true);
                 if let Some(w) = self.window() {
                     match self.behavior.as_str() {
                         "garder" => {}
@@ -126,6 +154,7 @@ impl Reporter for TauriReporter {
             Event::GameExited { code, .. } => {
                 self.taskbar(ProgressBarStatus::None, None);
                 keep_on_top(&self.app, false);
+                webview_memory(&self.app, false);
                 // « Fermer » : on quitte avec le jeu, sauf s'il a planté —
                 // le joueur doit voir le rapport.
                 if self.behavior == "fermer" && *code == Some(0) {
@@ -182,6 +211,15 @@ async fn overview(state: State<'_, Arc<AppState>>) -> CmdResult<Overview> {
     })
 }
 
+/// Les réglages seuls, tout de suite : `overview` attend la mesure de la
+/// machine (PowerShell sous Windows, plusieurs secondes juste après
+/// l'installation). Pendant ce temps, l'accueil croyait le joueur déconnecté
+/// et proposait « Se connecter » à la place de « Jouer ».
+#[tauri::command]
+fn settings_now(state: State<'_, Arc<AppState>>) -> Settings {
+    state.settings.lock().unwrap().clone()
+}
+
 #[tauri::command]
 fn save_settings(state: State<'_, Arc<AppState>>, settings: Settings) -> CmdResult<()> {
     let mut s = state.settings.lock().unwrap();
@@ -205,7 +243,7 @@ struct PresetsView {
 
 #[tauri::command]
 async fn presets_view(state: State<'_, Arc<AppState>>) -> CmdResult<PresetsView> {
-    let file = presets::fetch(&settings::pack_url()).await.map_err(err)?;
+    let file = presets::fetch(&state.paths, &settings::pack_url(), presets::Fetch::Cached).await.map_err(err)?;
     let hw = hardware_off_ui().await;
     import_game_changes(&state, &file, &hw);
     let settings = state.settings.lock().unwrap().clone();
@@ -404,7 +442,9 @@ async fn login_browser(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdRe
         _ = cancel_rx => return Err("annulé".into()),
     };
     state.login.lock().unwrap().take();
-    let account = Account { name: session.name, uuid: session.uuid };
+    let account = Account { name: session.name.clone(), uuid: session.uuid.clone() };
+    // Session toute neuve : le premier « Jouer » la reprend.
+    *state.session.lock().unwrap() = Some(session);
     let mut s = state.settings.lock().unwrap();
     s.account = Some(account.clone());
     s.save(&state.paths).map_err(err)?;
@@ -431,7 +471,9 @@ async fn login_finish(state: State<'_, Arc<AppState>>) -> CmdResult<Account> {
     let client_id = settings::azure_client_id().ok_or("connexion Microsoft non configurée")?;
     let code = state.device_code.lock().unwrap().clone().ok_or("aucune connexion en cours")?;
     let session = auth::finish_device_code(&client_id, &code).await.map_err(err)?;
-    let account = Account { name: session.name, uuid: session.uuid };
+    state.device_code.lock().unwrap().take();
+    let account = Account { name: session.name.clone(), uuid: session.uuid.clone() };
+    *state.session.lock().unwrap() = Some(session);
     let mut s = state.settings.lock().unwrap();
     s.account = Some(account.clone());
     s.save(&state.paths).map_err(err)?;
@@ -448,6 +490,9 @@ async fn skin(state: State<'_, Arc<AppState>>) -> CmdResult<String> {
 #[tauri::command]
 fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     auth::logout();
+    // Sans ça, le Snake et les rapports continuaient au nom de l'ancien
+    // compte jusqu'au prochain « Jouer ».
+    state.session.lock().unwrap().take();
     let mut s = state.settings.lock().unwrap();
     s.account = None;
     s.save(&state.paths).map_err(err)
@@ -466,8 +511,8 @@ fn import_game_changes(state: &AppState, file: &presets::PresetsFile, hw: &hardw
 /// Même chose avant « Jouer » ou « Réparer » : l'écran Qualité n'a peut-être
 /// pas été ouvert depuis la dernière partie.
 async fn import_before_launch(state: &AppState, r: &dyn Reporter) {
-    let Ok(file) = presets::fetch(&settings::pack_url()).await else { return };
-    let changed = import_game_changes(state, &file, &hardware::detect());
+    let Ok(file) = presets::fetch(&state.paths, &settings::pack_url(), presets::Fetch::Fresh).await else { return };
+    let changed = import_game_changes(state, &file, &hardware_off_ui().await);
     if !changed.is_empty() {
         r.log(&format!("réglages faits en jeu repris : {}", changed.join(", ")));
     }
@@ -650,6 +695,18 @@ fn open_folder(app: AppHandle, state: State<'_, Arc<AppState>>, which: String) -
 #[tauri::command]
 async fn snake_top() -> CmdResult<Vec<snake::Entry>> {
     snake::top(&settings::pack_url()).await.map_err(err)
+}
+
+/// Tout le classement du Snake (page « Classement »).
+#[tauri::command]
+async fn snake_ranking() -> CmdResult<snake::Ranking> {
+    snake::ranking(&settings::pack_url()).await.map_err(err)
+}
+
+/// Skin d'un joueur du classement, pour sa tête (cache de 6 h : skin.rs).
+#[tauri::command]
+async fn player_skin(state: State<'_, Arc<AppState>>, uuid: String) -> CmdResult<String> {
+    skin::skin_data_url(&state.paths, &uuid).await.map_err(err)
 }
 
 /// Envoie un score au classement, au nom du compte connecté (vérifié par
@@ -839,6 +896,7 @@ fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
     // Réparation interrompue : la tâche n'est pas allée jusqu'à le remettre.
     net::set_deep_verify(false);
     keep_on_top(&app, false);
+    webview_memory(&app, false);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_progress_bar(ProgressBarState { status: Some(ProgressBarStatus::None), progress: None });
     }
@@ -862,10 +920,17 @@ async fn play_inner(state: &AppState, r: &dyn Reporter, screen: Option<(u32, u32
     let settings = state.settings.lock().unwrap().clone();
     // Compte d'abord : inutile de tout préparer pour une session expirée.
     r.stage("account", "Compte");
-    let session = match (settings::offline_name(), settings::azure_client_id()) {
-        (Some(name), _) => auth::offline_session(&name),
-        (None, Some(client_id)) => auth::refresh(&client_id).await?,
-        (None, None) => anyhow::bail!("connexion Microsoft non configurée"),
+    let kept = state.session.lock().unwrap().clone().filter(|s| {
+        s.still_valid() && settings.account.as_ref().is_some_and(|a| a.uuid.replace('-', "") == s.uuid.replace('-', ""))
+    });
+    let session = match (settings::offline_name(), settings::azure_client_id(), kept) {
+        (Some(name), _, _) => auth::offline_session(&name),
+        (None, _, Some(session)) => {
+            r.log("session Minecraft encore valable : reprise");
+            session
+        }
+        (None, Some(client_id), None) => auth::refresh(&client_id).await?,
+        (None, None, None) => anyhow::bail!("connexion Microsoft non configurée"),
     };
     *state.session.lock().unwrap() = Some(session.clone());
     // Première installation : ~3 Go. Mieux vaut le dire avant qu'après.
@@ -968,6 +1033,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             overview,
+            settings_now,
             save_settings,
             presets_view,
             server_status,
@@ -989,6 +1055,8 @@ pub fn run() {
             open_folder,
             open_url,
             snake_top,
+            snake_ranking,
+            player_skin,
             snake_submit,
             crash_report_send,
             manual_report_status,

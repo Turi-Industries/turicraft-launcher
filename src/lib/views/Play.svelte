@@ -262,7 +262,8 @@
 					</div>
 				</div>
 				<div class="faint">
-					{#if !L.playerName}Avec ton compte Microsoft.
+					{#if !L.s}&nbsp;
+					{:else if !L.playerName}Avec ton compte Microsoft.
 					{:else if L.s?.join_server}Rejoint directement le serveur.
 					{:else}Ouvre le menu du jeu.{/if}
 					{#if L.updates?.pack_online && L.updates.pack_installed && L.updates.pack_online !== L.updates.pack_installed}
@@ -270,7 +271,9 @@
 					{/if}
 				</div>
 			</div>
-			{#if L.playerName}
+			{#if L.playerName || !L.s}
+				<!-- Réglages pas encore lus (tout début) : « Jouer » grisé, pas
+				     « Se connecter » — le joueur l'est peut-être déjà. -->
 				<button
 					class="mc-btn play-btn"
 					onclick={() => L.play()}

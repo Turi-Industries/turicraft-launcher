@@ -35,9 +35,13 @@
 			.catch((e) => (rankingError = String(e)));
 	}
 
+	/** Dernier record envoyé (ou à renvoyer après un échec). */
+	let pending = 0;
+
 	/** Un record personnel part au classement ; le serveur garde le meilleur. */
 	function submit(s: number) {
 		if (!L.s?.account) return; // sans compte Microsoft, rien à prouver
+		pending = s;
 		sent = { state: 'sending' };
 		api.snakeSubmit(s)
 			.then((r) => {
@@ -49,12 +53,18 @@
 	}
 
 	const me = $derived(L.playerName);
+	/** Le joueur se reconnaît à son UUID : un pseudo peut changer. */
+	const myUuid = $derived(L.s?.account?.uuid.replace(/-/g, '').toLowerCase() ?? null);
+	const isMe = (r: SnakeEntry) => (myUuid ? r.uuid.replace(/-/g, '').toLowerCase() === myUuid : r.name === me);
 	const medal = (i: number) => (i === 0 ? 'or' : i === 1 ? 'argent' : i === 2 ? 'bronze' : '');
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let board = $state<HTMLDivElement | null>(null);
-	/** Taille d'une case en pixels : la plus grande qui tient, entière (net). */
+	/** Taille d'une case en pixels RÉELS de l'écran : la plus grande qui
+	 *  tient, entière. Comptée en pixels CSS, elle était floue sur un écran
+	 *  mis à l'échelle (125 %, 150 % : la plupart des portables Windows). */
 	let cell = $state(16);
+	let dpr = $state(1);
 	let phase = $state<Phase>('idle');
 	let score = $state(0);
 	let best = $state(readBest());
@@ -232,7 +242,8 @@
 		const el = board;
 		if (!el) return;
 		const ro = new ResizeObserver(() => {
-			cell = Math.max(8, Math.floor(Math.min((el.clientWidth - 4) / W, (el.clientHeight - 4) / H)));
+			dpr = window.devicePixelRatio || 1;
+			cell = Math.max(8, Math.floor(Math.min(((el.clientWidth - 4) * dpr) / W, ((el.clientHeight - 4) * dpr) / H)));
 			requestAnimationFrame(draw);
 		});
 		ro.observe(el);
@@ -271,7 +282,12 @@
 	<div class="body">
 	<div class="area" bind:this={board}>
 	<div class="board">
-		<canvas bind:this={canvas} width={W * cell} height={H * cell}></canvas>
+		<canvas
+			bind:this={canvas}
+			width={W * cell}
+			height={H * cell}
+			style="width: {(W * cell) / dpr}px; height: {(H * cell) / dpr}px"
+		></canvas>
 		{#if phase !== 'run'}
 			<button class="overlay" onclick={start}>
 				{#if phase === 'over'}
@@ -300,7 +316,7 @@
 		{:else if ranking}
 			<ol>
 				{#each ranking as r, i (r.uuid)}
-					<li class:me={r.name === me}>
+					<li class:me={isMe(r)}>
 						<span class="pos {medal(i)}">{i + 1}</span>
 						<span class="name" title={r.name}>{r.name}</span>
 						<span class="pts">{r.score}</span>
@@ -312,6 +328,7 @@
 			{#if sent?.state === 'sending'}Envoi du record…
 			{:else if sent?.state === 'done'}Record enregistré : <strong>{sent.best}</strong>, {sent.rank === 1 ? '1re' : `${sent.rank}e`} place.
 			{:else if sent?.state === 'error'}<span class="bad">Record non envoyé : {sent.message}</span>
+				<button class="link" onclick={() => submit(pending)}>Réessayer</button>
 			{:else if me}Bats ton record pour entrer au classement, en tant que <strong>{me}</strong>.
 			{/if}
 		</div>

@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         Some("detect") => {
             let hw = hardware::detect();
             println!("{hw:#?}");
-            let file = presets::fetch(&turicraft_lib::settings::pack_url()).await?;
+            let file = presets::fetch(&paths, &turicraft_lib::settings::pack_url(), presets::Fetch::Fresh).await?;
             let res = presets::resolve(&file, &hw, &settings);
             println!("préréglage détecté : {}\nrésolu : {res:#?}", file.detect(&hw));
         }
