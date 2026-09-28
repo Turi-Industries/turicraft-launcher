@@ -10,6 +10,14 @@
 //! Le rapport est d'abord enregistré (`dernier-crash.json`) : le joueur qui
 //! a coupé l'envoi automatique, ou dont l'envoi a échoué, peut l'envoyer
 //! ensuite ; au lancement suivant, les journaux auront changé.
+//!
+//! Rapport à la demande (« Envoyer un rapport », écran Journal) : une
+//! déconnexion, un gel ou un bug en jeu ne ferment pas le jeu en erreur, et
+//! rien ne part tout seul. Même contenu sans crash-report, avec ce que le
+//! joueur a choisi comme raison. Jamais deux fois le même journal :
+//! l'empreinte de `latest.log` est gardée après l'envoi (`dernier-rapport.json`,
+//! et celle du dernier crash), et le serveur rend le numéro d'un rapport
+//! identique déjà reçu.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -18,6 +26,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::auth::Session;
 use crate::diag::CrashSummary;
@@ -40,10 +49,66 @@ pub struct Report {
     /// Numéro rendu par le serveur, une fois envoyé.
     #[serde(default)]
     pub sent_id: Option<String>,
+    /// Empreinte de `latest.log` au moment du rapport (`log_fingerprint`).
+    #[serde(default)]
+    pub log_fingerprint: Option<String>,
 }
 
 fn saved(paths: &Paths) -> PathBuf {
     paths.root.join("dernier-crash.json")
+}
+
+fn latest_log(paths: &Paths) -> PathBuf {
+    paths.instance().join("logs/latest.log")
+}
+
+/// Empreinte de `latest.log` tel qu'il est sur le disque. Tant qu'elle ne
+/// change pas, c'est le même journal : inutile de le renvoyer.
+pub fn log_fingerprint(paths: &Paths) -> Option<String> {
+    let bytes = std::fs::read(latest_log(paths)).ok()?;
+    Some(hex::encode(Sha256::digest(&bytes)))
+}
+
+/// Raisons proposées au joueur (choix fermé) : identifiant → libellé.
+pub const REASONS: [(&str, &str); 4] = [
+    ("deconnexion", "Déconnecté du serveur"),
+    ("fige", "Jeu figé ou très lent"),
+    ("bug", "Bug en jeu"),
+    ("autre", "Autre problème"),
+];
+
+/// Qui envoie : le compte du launcher, et le jeton de la dernière session
+/// s'il est en mémoire (à masquer s'il traîne dans un journal).
+pub struct Identity<'a> {
+    pub name: &'a str,
+    pub uuid: &'a str,
+    pub access_token: Option<&'a str>,
+}
+
+/// Ce qui est commun aux deux rapports : qui, quelle machine, quels réglages.
+fn base_meta(paths: &Paths, settings: &Settings, who: &Identity) -> serde_json::Value {
+    serde_json::json!({
+        "time": SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        "player": { "name": who.name, "uuid": who.uuid },
+        "launcher": crate::config::LAUNCHER_VERSION,
+        "pack": crate::packwiz::installed_pack_version(paths),
+        "os": {
+            "family": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "version": sysinfo::System::long_os_version(),
+        },
+        "hardware": crate::hardware::detect(),
+        "settings": {
+            "preset": settings.preset,
+            "custom_base": settings.custom_base,
+            "custom_memory_gb": settings.custom_memory_gb,
+            "toggles": settings.toggles,
+            "sliders": settings.sliders,
+            "mods": settings.mods,
+            "choices": settings.choices,
+            "join_server": settings.join_server,
+        },
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -57,7 +122,8 @@ pub fn collect(
     milestones_reached: usize,
     milestones: usize,
 ) -> Report {
-    let scrub = Scrub::new(session);
+    let who = Identity { name: &session.name, uuid: &session.uuid, access_token: Some(&session.access_token) };
+    let scrub = Scrub::new(who.access_token);
     let mut files = BTreeMap::new();
     if let Some(path) = &crash.report {
         let name = if crash.native { "hs_err.log" } else { "crash-report.txt" };
@@ -66,39 +132,70 @@ pub fn collect(
             files.insert(name.to_string(), scrub.apply(&text));
         }
     }
-    if let Some(text) = read_capped(&paths.instance().join("logs/latest.log"), MAX_LOG) {
+    if let Some(text) = read_capped(&latest_log(paths), MAX_LOG) {
         files.insert("latest.log".to_string(), scrub.apply(&text));
     }
-    let hw = crate::hardware::detect();
     let crash_json = serde_json::to_value(crash).unwrap_or_default();
-    let meta = serde_json::json!({
-        "time": SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
-        "player": { "name": session.name, "uuid": session.uuid },
-        "launcher": crate::config::LAUNCHER_VERSION,
-        "pack": crate::packwiz::installed_pack_version(paths),
-        "os": {
-            "family": std::env::consts::OS,
-            "arch": std::env::consts::ARCH,
-            "version": sysinfo::System::long_os_version(),
-        },
-        "hardware": hw,
-        "settings": {
-            "preset": settings.preset,
-            "custom_base": settings.custom_base,
-            "custom_memory_gb": settings.custom_memory_gb,
-            "toggles": settings.toggles,
-            "sliders": settings.sliders,
-            "mods": settings.mods,
-            "choices": settings.choices,
-            "join_server": settings.join_server,
-        },
-        "exit_code": code,
-        "elapsed_s": elapsed.as_secs(),
-        // Jusqu'où le démarrage est allé : 7/7 = le jeu était au menu.
-        "milestones": format!("{milestones_reached}/{milestones}"),
-        "crash": scrub.apply_json(crash_json),
-    });
-    Report { meta, files, sent_id: None }
+    let mut meta = base_meta(paths, settings, &who);
+    meta["kind"] = "crash".into();
+    meta["exit_code"] = code.into();
+    meta["elapsed_s"] = elapsed.as_secs().into();
+    // Jusqu'où le démarrage est allé : 7/7 = le jeu était au menu.
+    meta["milestones"] = format!("{milestones_reached}/{milestones}").into();
+    meta["crash"] = scrub.apply_json(crash_json);
+    Report { meta, files, sent_id: None, log_fingerprint: log_fingerprint(paths) }
+}
+
+/// Rapport à la demande : `latest.log` du jeu (en cours ou dernier lancé),
+/// la machine, les réglages, la raison choisie par le joueur.
+pub fn collect_manual(paths: &Paths, settings: &Settings, who: &Identity, reason: &str, game_running: bool) -> Result<Report> {
+    let label = REASONS.iter().find(|(id, _)| *id == reason).map(|(_, l)| *l).context("raison inconnue")?;
+    let scrub = Scrub::new(who.access_token);
+    let text = read_capped(&latest_log(paths), MAX_LOG).context("aucun journal du jeu : lance le jeu une fois")?;
+    let mut files = BTreeMap::new();
+    files.insert("latest.log".to_string(), scrub.apply(&text));
+    let mut meta = base_meta(paths, settings, who);
+    meta["kind"] = "manual".into();
+    meta["reason"] = label.into();
+    meta["game_running"] = game_running.into();
+    Ok(Report { meta, files, sent_id: None, log_fingerprint: log_fingerprint(paths) })
+}
+
+/// Dernier rapport à la demande envoyé : son journal et son numéro.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+struct Sent {
+    fingerprint: String,
+    id: String,
+}
+
+fn sent_path(paths: &Paths) -> PathBuf {
+    paths.root.join("dernier-rapport.json")
+}
+
+/// Numéro du rapport déjà envoyé avec le `latest.log` actuel (à la demande,
+/// ou avec le dernier crash), s'il y en a un.
+pub fn already_sent(paths: &Paths) -> Option<String> {
+    let fp = log_fingerprint(paths)?;
+    let manual: Option<Sent> = std::fs::read(sent_path(paths)).ok().and_then(|b| serde_json::from_slice(&b).ok());
+    if let Some(s) = manual.filter(|s| s.fingerprint == fp) {
+        return Some(s.id);
+    }
+    let crash = Report::load(paths)?;
+    if crash.log_fingerprint.as_deref() == Some(fp.as_str()) {
+        return crash.sent_id;
+    }
+    None
+}
+
+/// Envoie un rapport à la demande et garde l'empreinte de son journal.
+pub async fn send_manual(paths: &Paths, pack_url: &str, report: &Report) -> Result<String> {
+    let id = send(pack_url, report).await?;
+    if let Some(fingerprint) = &report.log_fingerprint {
+        let sent = Sent { fingerprint: fingerprint.clone(), id: id.clone() };
+        std::fs::create_dir_all(&paths.root)?;
+        std::fs::write(sent_path(paths), serde_json::to_vec(&sent)?)?;
+    }
+    Ok(id)
 }
 
 impl Report {
@@ -209,10 +306,10 @@ struct Scrub {
 }
 
 impl Scrub {
-    fn new(session: &Session) -> Self {
+    fn new(access_token: Option<&str>) -> Self {
         let mut pairs = Vec::new();
-        if session.access_token.len() >= 8 {
-            pairs.push((session.access_token.clone(), "***".to_string()));
+        if let Some(token) = access_token.filter(|t| t.len() >= 8) {
+            pairs.push((token.to_string(), "***".to_string()));
         }
         if let Some(home) = dirs::home_dir() {
             let h = home.display().to_string();
@@ -296,6 +393,8 @@ mod tests {
         assert!(!rep.files["latest.log"].contains("eyJsecretjeton"));
         assert_eq!(rep.meta["player"]["name"], "Joueur");
         assert_eq!(rep.meta["milestones"], "7/7");
+        assert_eq!(rep.meta["kind"], "crash");
+        assert!(rep.log_fingerprint.is_some());
         rep.save(&paths).unwrap();
         let back = Report::load(&paths).unwrap();
         assert_eq!(back.files, rep.files);
@@ -304,9 +403,46 @@ mod tests {
     }
 
     #[test]
+    fn rapport_a_la_demande_jamais_deux_fois() {
+        let dir = std::env::temp_dir().join(format!("turicraft-rapport-manuel-{}", std::process::id()));
+        let paths = Paths::new(dir.clone());
+        let who = Identity { name: "Joueur", uuid: "u", access_token: Some("eyJsecretjeton") };
+        // Pas encore de journal : rien à envoyer.
+        assert!(collect_manual(&paths, &Settings::default(), &who, "fige", true).is_err());
+        std::fs::create_dir_all(paths.instance().join("logs")).unwrap();
+        std::fs::write(paths.instance().join("logs/latest.log"), "Timed out eyJsecretjeton\n").unwrap();
+        assert!(collect_manual(&paths, &Settings::default(), &who, "inventee", true).is_err());
+        let rep = collect_manual(&paths, &Settings::default(), &who, "deconnexion", true).unwrap();
+        assert_eq!(rep.meta["kind"], "manual");
+        assert_eq!(rep.meta["reason"], "Déconnecté du serveur");
+        assert!(!rep.files["latest.log"].contains("eyJsecretjeton"));
+        assert!(already_sent(&paths).is_none());
+        // Envoi noté (sans réseau : ce que fait send_manual après la réponse).
+        let sent = Sent { fingerprint: rep.log_fingerprint.clone().unwrap(), id: "ABC123".into() };
+        std::fs::write(sent_path(&paths), serde_json::to_vec(&sent).unwrap()).unwrap();
+        assert_eq!(already_sent(&paths).as_deref(), Some("ABC123"));
+        // Le journal change (le jeu a continué) : nouveau rapport possible.
+        std::fs::write(paths.instance().join("logs/latest.log"), "Timed out\nencore\n").unwrap();
+        assert!(already_sent(&paths).is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn journal_deja_envoye_avec_le_crash() {
+        let dir = std::env::temp_dir().join(format!("turicraft-rapport-crash-{}", std::process::id()));
+        let paths = Paths::new(dir.clone());
+        std::fs::create_dir_all(paths.instance().join("logs")).unwrap();
+        std::fs::write(paths.instance().join("logs/latest.log"), "crash\n").unwrap();
+        let rep = Report { meta: serde_json::json!({}), files: BTreeMap::new(), sent_id: Some("C0FFEE".into()), log_fingerprint: log_fingerprint(&paths) };
+        rep.save(&paths).unwrap();
+        assert_eq!(already_sent(&paths).as_deref(), Some("C0FFEE"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn jeton_et_dossier_personnel_masques() {
         let session = Session { name: "Jean".into(), uuid: "u".into(), access_token: "eyJsecretjeton".into(), xuid: String::new() };
-        let scrub = Scrub::new(&session);
+        let scrub = Scrub::new(Some(&session.access_token));
         let home = dirs::home_dir().unwrap().display().to_string();
         let out = scrub.apply(&format!("--accessToken eyJsecretjeton dans {home}/turicraft/instance"));
         assert!(!out.contains("eyJsecretjeton") && !out.contains(&home), "{out}");

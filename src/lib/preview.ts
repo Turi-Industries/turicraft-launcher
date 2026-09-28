@@ -6,6 +6,7 @@
 // L'état se choisit dans l'URL : ?vue=jouer|qualite|options|journal
 // &etat=repos|prep|lancement|jeu|crash|pilote|integree|reparation|repare|raz|raz-fait|code|hors-ligne|pack-hs &compte=0 &serveur=0 &maj=1
 // &preset=auto|faible|moyen|haut|personnalise &perso=1 (une option changée)
+// &signal=ouvert|deja|vide|envoi|echec (« Envoyer un rapport » de l'écran Journal)
 // &classement=0 (classement du Snake injoignable) &journal=1 (journal rempli) &dossiers=1 (menu Dossiers ouvert) &angle=35 (« Jouer » figé sous cet angle)
 
 import type { LauncherEvent } from './api';
@@ -254,6 +255,12 @@ export async function previewInvoke(cmd: string): Promise<unknown> {
 				{ date: '2026-09-24', title: 'Le launcher Turi Craft arrive', body: 'Installation du jeu, des mods et des réglages en un clic, préréglages de qualité adaptés à ta machine, et connexion avec ton compte Microsoft.' },
 				{ date: '2026-09-24', title: 'Nouveaux menus', body: 'Menu principal et menu pause refaits.\nDans l’esprit de Minecraft.', url: 'https://discord.com/channels/1/2/3' }
 			];
+		case 'manual_report_status':
+			return { has_log: p.get('signal') !== 'vide', sent_id: p.get('signal') === 'deja' ? '9B41D0' : null };
+		case 'manual_report_send':
+			await new Promise((r) => setTimeout(r, p.get('signal') === 'envoi' ? 1e9 : 800));
+			if (p.get('signal') === 'echec') throw new Error('serveur des rapports injoignable');
+			return '9B41D0';
 		case 'crash_report_send':
 			setTimeout(() => handlers.forEach((h) => h({ kind: 'crash_report', status: 'sent', id: '7F3A2C', error: null })), 800);
 			return null;

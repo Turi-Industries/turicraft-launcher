@@ -759,6 +759,74 @@ async fn crash_report_send(app: AppHandle, state: State<'_, Arc<AppState>>) -> C
     Ok(())
 }
 
+/// État du bouton « Envoyer un rapport » (écran Journal).
+#[derive(Serialize)]
+struct ManualReport {
+    /// Un journal du jeu existe (sinon : rien à envoyer).
+    has_log: bool,
+    /// Ce journal-ci est déjà parti : son numéro.
+    sent_id: Option<String>,
+}
+
+#[tauri::command]
+async fn manual_report_status(state: State<'_, Arc<AppState>>) -> CmdResult<ManualReport> {
+    let paths = state.paths.clone();
+    // Lire et hacher un journal de plusieurs Mo : hors du fil de la fenêtre.
+    tauri::async_runtime::spawn_blocking(move || ManualReport {
+        has_log: paths.instance().join("logs/latest.log").is_file(),
+        sent_id: report::already_sent(&paths),
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Un seul envoi à la fois, même si le bouton reçoit deux clics.
+static MANUAL_SENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// « Envoyer un rapport » : `latest.log`, machine, réglages et raison, à
+/// l'équipe (report.rs). Rend le numéro ; celui de l'envoi précédent si le
+/// journal n'a pas changé depuis.
+#[tauri::command]
+async fn manual_report_send(state: State<'_, Arc<AppState>>, reason: String) -> CmdResult<String> {
+    use std::sync::atomic::Ordering;
+    if MANUAL_SENDING.swap(true, Ordering::SeqCst) {
+        return Err("envoi déjà en cours".into());
+    }
+    struct Release;
+    impl Drop for Release {
+        fn drop(&mut self) {
+            MANUAL_SENDING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _release = Release;
+
+    let st = state.inner().clone();
+    let running = st.task.lock().unwrap().as_ref().is_some_and(|t| !t.inner().is_finished());
+    let settings = st.settings.lock().unwrap().clone();
+    let session = st.session.lock().unwrap().clone();
+    let paths = st.paths.clone();
+    let rep = tauri::async_runtime::spawn_blocking(move || {
+        if let Some(id) = report::already_sent(&paths) {
+            return Ok(Err(id));
+        }
+        let (name, uuid) = match (&session, &settings.account, settings::offline_name()) {
+            (Some(s), _, _) => (s.name.clone(), s.uuid.clone()),
+            (None, Some(a), _) => (a.name.clone(), a.uuid.clone()),
+            (None, None, Some(n)) => (n, String::new()),
+            (None, None, None) => (String::new(), String::new()),
+        };
+        let who = report::Identity { name: &name, uuid: &uuid, access_token: session.as_ref().map(|s| s.access_token.as_str()) };
+        report::collect_manual(&paths, &settings, &who, &reason, running).map(Ok)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(err)?;
+    match rep {
+        Err(id) => Ok(id),
+        Ok(rep) => report::send_manual(&st.paths, &settings::pack_url(), &rep).await.map_err(err),
+    }
+}
+
 /// Annule la préparation, ou arrête le jeu s'il tourne.
 #[tauri::command]
 fn stop(app: AppHandle, state: State<'_, Arc<AppState>>) {
@@ -923,6 +991,8 @@ pub fn run() {
             snake_top,
             snake_submit,
             crash_report_send,
+            manual_report_status,
+            manual_report_send,
             play,
             stop
         ])

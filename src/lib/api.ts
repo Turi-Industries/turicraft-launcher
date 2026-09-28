@@ -217,6 +217,22 @@ export type LauncherEvent =
 	| { kind: 'game_exited'; code: number | null; crash: CrashSummary | null }
 	| { kind: 'crash_report'; status: CrashReportStatus; id: string | null; error: string | null };
 
+/** État du bouton « Envoyer un rapport » (écran Journal). */
+export interface ManualReport {
+	/** Un journal du jeu existe (sinon : rien à envoyer). */
+	has_log: boolean;
+	/** Ce journal-ci est déjà parti : son numéro. */
+	sent_id: string | null;
+}
+
+/** Raisons proposées au joueur : les mêmes que `REASONS` (report.rs). */
+export const REPORT_REASONS = [
+	{ id: 'deconnexion', label: 'Déconnecté' },
+	{ id: 'fige', label: 'Figé ou lent' },
+	{ id: 'bug', label: 'Bug' },
+	{ id: 'autre', label: 'Autre' }
+] as const;
+
 /** Rapport de crash envoyé à l'équipe (report.rs) : `manual` = envoi automatique coupé. */
 export type CrashReportStatus = 'sending' | 'sent' | 'failed' | 'manual';
 
@@ -249,6 +265,9 @@ export const api = {
 	snakeSubmit: (score: number) => invoke<SnakeSubmitted>('snake_submit', { score }),
 	/** Résultat par l'événement `crash_report`. */
 	sendCrashReport: () => invoke<void>('crash_report_send'),
+	manualReportStatus: () => invoke<ManualReport>('manual_report_status'),
+	/** Rend le numéro du rapport (celui du précédent si le journal n'a pas changé). */
+	manualReportSend: (reason: string) => invoke<string>('manual_report_send', { reason }),
 	play: () => invoke<void>('play'),
 	stop: () => invoke<void>('stop')
 };

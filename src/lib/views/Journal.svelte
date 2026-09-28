@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { api } from '$lib/api';
+	import { api, REPORT_REASONS, type ManualReport } from '$lib/api';
+	import { isPreview } from '$lib/preview';
 	import { L, type LogLine } from '$lib/state.svelte';
 
 	type Filter = 'tout' | 'etapes' | 'problemes';
@@ -38,6 +39,59 @@
 		box?.scrollTo({ top: box.scrollHeight });
 	}
 
+	// « Envoyer un rapport » : une déconnexion, un gel ou un bug en jeu ne
+	// ferment pas le jeu en erreur, et aucun rapport ne part tout seul.
+	const signal = isPreview ? new URLSearchParams(location.search).get('signal') : null;
+	let report = $state<ManualReport | null>(null);
+	let reportOpen = $state(signal === 'ouvert' || signal === 'envoi' || signal === 'echec');
+	let reason = $state<string | null>(signal === 'envoi' || signal === 'echec' ? 'deconnexion' : null);
+	let sending = $state(false);
+	let sentId = $state<string | null>(null);
+	let sendError = $state<string | null>(null);
+
+	async function refreshReport() {
+		try {
+			report = await api.manualReportStatus();
+		} catch {
+			report = null;
+		}
+	}
+
+	// Au chargement de l'écran, et quand le jeu démarre ou s'arrête : le
+	// journal du jeu change alors.
+	$effect(() => {
+		void L.running;
+		refreshReport();
+	});
+
+	function openReport() {
+		reportOpen = true;
+		sentId = null;
+		sendError = null;
+		refreshReport();
+	}
+
+	async function sendReport() {
+		if (!reason || sending) return;
+		sending = true;
+		sendError = null;
+		try {
+			sentId = await api.manualReportSend(reason);
+			reportOpen = false;
+			reason = null;
+			await refreshReport();
+		} catch (e) {
+			sendError = e instanceof Error ? e.message : String(e);
+		} finally {
+			sending = false;
+		}
+	}
+
+	$effect(() => {
+		if (signal === 'envoi' && reportOpen && !sending) sendReport();
+		if (signal === 'echec' && reportOpen && !sending && !sendError) sendReport();
+	});
+
 	function copy() {
 		navigator.clipboard
 			?.writeText(shown.map(line).join('\n'))
@@ -63,6 +117,50 @@
 		{:else if L.inGame}Le jeu tourne.
 		{:else}Ce que fait le launcher : installation, synchronisation, lancement. Le journal du jeu lui-même est dans « Journaux du jeu ».{/if}
 	</p>
+
+	<section class="panel report">
+		{#if reportOpen}
+			<div class="report-head">
+				<strong>Ce qui s’est passé</strong>
+				<button class="link" onclick={() => (reportOpen = false)} disabled={sending}>Annuler</button>
+			</div>
+			<div class="segmented reasons">
+				{#each REPORT_REASONS as r (r.id)}
+					<button class:on={reason === r.id} onclick={() => (reason = r.id)} disabled={sending}>{r.label}</button>
+				{/each}
+			</div>
+			<div class="report-foot">
+				<span class="hint"
+					>{#if sendError}Rapport non envoyé : {sendError}{:else}Part : journal du jeu, machine, réglages.{/if}</span
+				>
+				<button class="mc-btn small" onclick={sendReport} disabled={!reason || sending}
+					>{sending ? 'Envoi…' : sendError ? 'Réessayer' : 'Envoyer'}</button
+				>
+			</div>
+		{:else}
+			<div class="grow">
+				{#if sentId}
+					<strong>Rapport envoyé : n° {sentId}</strong>
+					<div class="hint">Donne ce numéro sur Discord en expliquant ce qui s’est passé.</div>
+				{:else if report?.sent_id}
+					<strong>Déjà envoyé : n° {report.sent_id}</strong>
+					<div class="hint">Le journal n’a pas changé depuis. Donne ce numéro sur Discord.</div>
+				{:else if report && !report.has_log}
+					<strong>Un souci en jeu ?</strong>
+					<div class="hint">Pas encore de journal du jeu : lance le jeu une fois.</div>
+				{:else}
+					<strong>Un souci en jeu ?</strong>
+					<div class="hint">Déconnexion, jeu figé, bug : préviens l’équipe.</div>
+				{/if}
+			</div>
+			<button
+				class="mc-btn small"
+				onclick={openReport}
+				disabled={!report?.has_log || !!report?.sent_id}
+				title={report?.sent_id ? `Déjà envoyé : n° ${report.sent_id}` : undefined}>Envoyer un rapport</button
+			>
+		{/if}
+	</section>
 
 	<div class="bar">
 		<div class="segmented">
@@ -101,13 +199,14 @@
 <style>
 	.page {
 		gap: 12px;
-		overflow: hidden;
+		overflow-x: hidden;
 	}
 	header {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
-		gap: 16px;
+		gap: 10px 16px;
 	}
 	h2 {
 		font-family: var(--pixel);
@@ -122,12 +221,46 @@
 	}
 	.row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: 8px;
+	}
+	.report {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px 16px;
+		padding: 10px 14px;
 		flex: none;
+	}
+	.report:has(.reasons) {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 10px;
+	}
+	.grow {
+		flex: 1 1 200px;
+		min-width: 0;
+	}
+	.report-head,
+	.report-foot {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+	}
+	.reasons {
+		align-self: flex-start;
+		flex-wrap: wrap;
+	}
+	.reasons button {
+		padding: 5px 12px;
+		font-size: 13px;
 	}
 	.bar {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
 		gap: 12px;
@@ -153,11 +286,13 @@
 	.log-wrap {
 		position: relative;
 		flex: 1;
-		min-height: 0;
+		min-height: 180px;
+		min-width: 0;
 		display: flex;
 	}
 	.log {
 		flex: 1;
+		min-width: 0;
 		overflow: auto;
 		background: #000;
 		border: 2px solid #000;
