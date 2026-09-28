@@ -454,14 +454,14 @@ mod tests_reglages_en_jeu {
         s.applied = Some(applied_hash(&paths, &file, &r));
         assert!(import_game_changes(&paths, &file, &hw, &mut s).is_empty(), "rien changé en jeu");
 
-        // En jeu : distance 12, synchro verticale coupée.
+        // En jeu : distance 12, synchro verticale allumée (coupée par défaut).
         let opts = paths.instance().join("options.txt");
-        let text = std::fs::read_to_string(&opts).unwrap().replace("renderDistance:16", "renderDistance:12").replace("enableVsync:true", "enableVsync:false");
+        let text = std::fs::read_to_string(&opts).unwrap().replace("renderDistance:16", "renderDistance:12").replace("enableVsync:false", "enableVsync:true");
         std::fs::write(&opts, text).unwrap();
         let mut changed = import_game_changes(&paths, &file, &hw, &mut s);
         changed.sort();
         assert_eq!(changed, vec!["distance".to_string(), "synchro_verticale".to_string()]);
-        assert_eq!((s.sliders["distance"], s.toggles["synchro_verticale"]), (12, false));
+        assert_eq!((s.sliders["distance"], s.toggles["synchro_verticale"]), (12, true));
         // Le jeu a déjà ces valeurs : au lancement, rien à réécrire.
         assert_eq!(s.applied.as_deref(), Some(applied_hash(&paths, &file, &presets::resolve(&file, &hw, &s)).as_str()));
 
