@@ -987,9 +987,11 @@ mod tests {
         assert_eq!(r(&hw(7.6, 8, false)), (6.0, "G1".to_string()));   // PC 8 Go
         assert_eq!(r(&hw(8.0, 8, true)), (5.5, "G1".to_string()));    // Mac 8 Go : 0,5 de moins (24/09)
         assert_eq!(r(&hw(16.0, 10, true)), (7.5, "G1".to_string()));  // Mac 16 Go
-        assert_eq!(r(&hw(15.3, 12, false)), (8.0, "ZGC".to_string())); // PC 16 Go
-        assert_eq!(r(&hw(32.0, 8, false)), (16.0, "ZGC".to_string()));
-        assert_eq!(r(&hw(23.2, 20, false)), (12.0, "ZGC".to_string())); // 24 Go annoncés 23,2
+        // PC 16 Go : G1 (28/09) — en ZGC, cycle complet de 12 s toutes les 40 s, RAM à 97 %
+        assert_eq!(r(&hw(15.3, 12, false)), (8.0, "G1".to_string()));
+        assert_eq!(r(&hw(32.0, 8, false)), (12.0, "ZGC".to_string())); // 16 Go de tas : RAM à 97 %
+        assert_eq!(r(&hw(64.0, 16, false)), (12.0, "ZGC".to_string()));
+        assert_eq!(r(&hw(23.2, 20, false)), (10.0, "ZGC".to_string())); // 24 Go annoncés 23,2
         assert_eq!(r(&hw(15.3, 4, false)), (8.0, "G1".to_string()));  // 4 fils : ZGC manquerait de cœurs
         // Plafond du réglage manuel : ce qu'il faut au système.
         assert_eq!(f.memory_cap_gb(&hw(7.6, 8, false)), 6.0);
@@ -1107,6 +1109,23 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// PC 16 Go, RTX 2070 (8 Go) : Haut, mais distance 12 et vue lointaine
+    /// 96 — RAM à 97 % et fil de rendu saturé à 14 / 128 (spark, 28/09).
+    /// Avec une carte de 12 Go, la mémoire garde le dernier mot.
+    #[test]
+    fn pc_16_go_en_haut() {
+        let f = parse(REAL).unwrap();
+        let hw = |vram| Hardware { ram_gb: 15.9, cpu_threads: 16, gpu_dedicated: true, vram_gb: vram, gpu_name: String::new(), shared_memory: false, windows_arm: false, display: Default::default() };
+        for vram in [8.0, 12.0] {
+            let r = resolve(&f, &hw(vram), &crate::settings::Settings::default());
+            assert_eq!(r.preset, "haut");
+            assert_eq!((r.sliders["distance"], r.sliders["distance_lointaine"]), (12, 96), "{vram}");
+        }
+        // 24 Go : pas concerné
+        let r = resolve(&f, &Hardware { ram_gb: 23.2, ..hw(8.0) }, &crate::settings::Settings::default());
+        assert_eq!(r.sliders["distance"], 14);
+    }
+
     /// 8 Go de RAM mais grosse carte : la mémoire a le dernier mot.
     #[test]
     fn la_memoire_limite_apres_la_grosse_carte() {
@@ -1162,11 +1181,11 @@ mod tests {
         assert_eq!(r.sliders["images"], 141);
         // 360 Hz sans VRR : Minecraft ne limite pas au-delà de 250 → illimité
         let r = resolve(&f, &screen(Some(360), false), &s);
-        assert!(r.toggles["synchro_verticale"]);
         assert_eq!(r.sliders["images"], 260);
-        // Mac (jamais de VRR), 120 Hz : synchro gardée, 120 i/s
+        // Synchro coupée par défaut, même sans VRR (28/09) : avec, un PC qui ne
+        // tient pas 60 i/s tombe à 30. La fréquence de l'écran limite la cadence.
         let r = resolve(&f, &screen(Some(120), false), &s);
-        assert!(r.toggles["synchro_verticale"] && r.sliders["images"] == 120);
+        assert!(!r.toggles["synchro_verticale"] && r.sliders["images"] == 120);
         // Taille de l'interface : 3 en 1440p (hauteur / 480)
         assert_eq!(resolve(&f, &screen(Some(144), true), &s).sliders["interface"], 3);
         // Fréquence inconnue : illimité, quel que soit le préréglage

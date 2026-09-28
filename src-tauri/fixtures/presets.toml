@@ -52,8 +52,10 @@ windows_arm = false
 # Selon la RAM de la machine, pas selon la qualité graphique. Le palier le
 # plus haut atteint (RAM arrondie : un « 8 Go » en annonce ~7,6).
 #   8 Go → 6 Go : il en reste 2 pour le système et ce que Java prend hors du tas.
-#   Au-delà de 16 Go, la moitié environ (26/09) : 420 mods, shaders et vue
-#   lointaine profitent d'un tas large, et le système garde de quoi vivre.
+#   Au-delà de 16 Go : 10 Go (24 Go), 12 Go (32 Go et plus). Profils spark
+#   du 28/09 : à 16 Go de tas sur 32 Go, la machine était à 97 % de RAM ; à
+#   12 Go sur 64 Go, ZGC tenait sans peine (un cycle complet de 5 s par
+#   minute). Plus de tas ne sert à rien, il prend la RAM du système.
 # Puce Apple ou Snapdragon : la carte graphique prend sur la même mémoire → `shared_gpu_gb`
 # de moins (Mac 8 Go → 5,5 Go ; à 5 Go, grosses saccades — 24/09).
 # Réglage manuel (mode Avancé) : au plus RAM − `min_free_gb` (− shared_gpu_gb).
@@ -66,20 +68,30 @@ steps = [
   { ram = 6,  game = 4 },
   { ram = 8,  game = 6 },
   { ram = 12, game = 8 },
-  { ram = 24, game = 12 },
-  { ram = 32, game = 16 },
+  { ram = 24, game = 10 },
+  { ram = 32, game = 12 },
 ]
 
 # ─── Ramasse-miettes (Java 21 de Mojang, options vérifiées le 24/09) ────────
 # ZGC générationnel : pauses quasi nulles, mais il lui faut de la marge. Sur
 # un petit tas, il bloque les allocations le temps de nettoyer (« allocation
-# stall ») : de grosses saccades. En dessous de 8 Go ou de 8 fils : G1, réglé
+# stall ») : de grosses saccades. En dessous de 10 Go ou de 8 fils : G1, réglé
 # pour un client (pauses courtes, jeune génération large, objets peu vieillis).
+# 10 Go et non 8 (28/09) : PC 16 Go, tas de 8 Go en ZGC → cycle complet de
+# 12 s toutes les 40 s, RAM à 97 %. ZGC n'a pas les pointeurs compressés :
+# le même monde prend ~25 % de plus que sous G1.
+#
+# -Dvelocity.natives-disabled=true (28/09) : Krypton Reno décompresse les
+# paquets avec les bibliothèques natives de Velocity (libdeflate). Chez un
+# joueur, elles rejetaient les gros paquets (« inflate data is bad ») : chat
+# reçu, terrain jamais, chute dans le vide. Le client décompresse donc en
+# Java, comme Minecraft d'origine ; le serveur garde sa compression native.
 [jvm]
-zgc_min_memory_gb = 8
+zgc_min_memory_gb = 10
 zgc_min_cpu_threads = 8
-zgc = ["-XX:+UseZGC", "-XX:+ZGenerational"]
+zgc = ["-XX:+UseZGC", "-XX:+ZGenerational", "-Dvelocity.natives-disabled=true"]
 g1 = [
+  "-Dvelocity.natives-disabled=true",
   "-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=50",
   "-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC",
   "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M",
@@ -245,8 +257,11 @@ groups = ["premiere_personne"]
 [toggles.synchro_verticale]
 category = "graphismes"
 label = "Synchronisation verticale"
-description = "Évite les déchirures de l'image. La couper peut donner plus d'images par seconde."
-default = true
+description = "Évite les déchirures de l'image, mais tombe à 30 images/s dès que le jeu n'en tient plus 60."
+# Coupée par défaut (28/09) : un PC avec RTX 5070 restait bloqué à 30 images/s,
+# le fil de rendu attendait l'écran la moitié du temps (profil spark). Sans
+# elle, le curseur « images » (fréquence de l'écran) limite déjà la cadence.
+default = false
 options = { enableVsync = "true" }
 [toggles.synchro_verticale.off]
 options = { enableVsync = "false" }
@@ -359,13 +374,15 @@ version = 2         # options.txt : la monter les repose UNE fois chez tout le m
 # Le launcher garde ensuite ces paquets à leur place et ajoute les siens
 # (Fresh Animations) au-dessus.
 options = { lang = "fr_fr", resourcePacks = '["vanilla","file/E19 Cobblemon Minimap Icons.zip","fabric","mod_resources","aeronauticshotairfix:hot_air_fix","file/RCT Trainers+ [1.6] v2.1.zip","file/RCT Brilliant Diamond & Shining Pearl Skins.zip"]', incompatibleResourcePacks = '["file/RCT Brilliant Diamond & Shining Pearl Skins.zip"]' }
-files_version = 1   # fichiers ci-dessous, suivis à part (launcher 0.1.4 et plus)
+files_version = 3   # fichiers ci-dessous, suivis à part (launcher 0.1.4 et plus)
 # Pas d'accueil « Appuie sur V pour configurer » de Simple Voice Chat : V
 # marche toujours. Fichier propre à chaque joueur (micro, volumes) : posé ici,
 # jamais embarqué dans le pack.
+# config_version = 1 obligatoire : sans elle, un fichier créé ici est pris
+# pour une config « version 0 », migrée et remise à zéro (Jean, 27/09).
 [once.files."config/voicechat/voicechat-client.properties"]
 format = "properties"
-set = { onboarding_finished = "true" }
+set = { config_version = "1", onboarding_finished = "true" }
 # Pas de ligne « ==== Restored Messages ==== » (Chat Tools). Le fichier vient
 # de defaultoptions au premier démarrage, déjà à false : ici, seulement pour
 # les installations existantes.
@@ -373,6 +390,37 @@ set = { onboarding_finished = "true" }
 format = "json"
 if_exists = true
 set = { "general.RestoreMessages.SplitLineEnabled" = false }
+# Minimap ronde (Jean, 27/09). Seulement si le profil existe : Xaero laisse
+# vides les clés absentes d'un profil partiel. Un nouveau joueur reçoit un
+# profil complet, déjà rond, de defaultoptions/extra (avant le chargement de
+# Xaero).
+[once.files."config/xaero/minimap/profiles/default.cfg"]
+format = "properties"
+if_exists = true
+set = { minimap_shape = "1" }
+# Battle Extras : les talents de l'adversaire s'affichaient à droite, de mi-
+# hauteur vers le bas, sur le journal de combat (Jean, 27/09). Centrés, ils ne
+# le couvrent plus. configResetVersion = 1 (celle du mod) : sans elle, le mod
+# remet toute sa config à zéro au chargement.
+# Minimap en haut à droite (préréglage « Top Right » de Xaero), comme
+# l'installe defaultoptions/extra/config/xaerohud.txt chez un nouveau joueur :
+# en haut à gauche, elle couvrait le compteur de FPS et le reste du HUD
+# (Jean, 27/09). Xaero y repousse lui-même les effets de potion. Le fichier
+# n'a qu'une ligne (le module minimap), clé « module;id » pour le launcher.
+[once.files."config/xaerohud.txt"]
+format = "properties"
+if_exists = true
+set = { "module;id" = "xaerominimap:minimap;x=0;y=0;centered=false;fromRight=true;fromBottom=false;flippedVer=false;flippedHor=false;" }
+# Effets de statut (Stylish Effects) en haut à gauche : en haut à droite, la
+# minimap les couvre (Jean, 27/09 ; files_version 3). Nouveau joueur :
+# defaultoptions/extra/config/stylisheffects-client.toml.
+[once.files."config/stylisheffects-client.toml"]
+format = "toml"
+if_exists = true
+set = { "renderers.gui_renderer.screen_side" = "LEFT" }
+[once.files."config/cobblemon-battle-extras.json"]
+format = "json"
+set = { abilityPopupCentered = true, configResetVersion = 1 }
 
 # ─── Ajustements automatiques ───────────────────────────────────────────────
 # Appliqués dans l'ordre, par-dessus le préréglage, quand la machine remplit
@@ -394,6 +442,14 @@ sliders = { distance = 16, distance_lointaine = 192 }
 files."shaderpacks/ComplementaryUnbound_r5.9.3 + EuphoriaPatches_1.10.5.txt" = { format = "properties", set = { SHADOW_QUALITY = "2", shadowDistance = "192.0", WATER_REFLECT_QUALITY = "2", BLOCK_REFLECT_QUALITY = "3", LIGHTSHAFT_QUALI_DEFINE = "2", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "1", DETAIL_QUALITY = "2", CLOUD_QUALITY = "2", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "1", RAIN_PUDDLES = "0" } }
 files."shaderpacks/ComplementaryReimagined_r5.9.3 + EuphoriaPatches_1.10.5.txt" = { format = "properties", set = { SHADOW_QUALITY = "2", shadowDistance = "192.0", WATER_REFLECT_QUALITY = "2", BLOCK_REFLECT_QUALITY = "3", LIGHTSHAFT_QUALI_DEFINE = "2", SSAO_QUALI_DEFINE = "2", FXAA_DEFINE = "1", DETAIL_QUALITY = "2", CLOUD_QUALITY = "2", ANISOTROPIC_FILTER = "0", COLORED_LIGHTING = "0", WORLD_SPACE_REFLECTIONS = "-1", ENTITY_SHADOW = "1", RAIN_PUDDLES = "0" } }
 files."config/iris.properties" = { format = "properties", set = { maxShadowRenderDistance = "12" } }
+
+# PC 16 Go en Haut (RTX 2070, 28/09) : RAM à 97 % et fil de rendu saturé —
+# Distant Horizons garde ses LOD dans le tas, chaque chunk coûte au rendu.
+[[adapt]]
+note = "16 Go de mémoire"
+presets = ["haut"]
+when = { max_ram_gb = 17 }
+sliders = { distance = 12, distance_lointaine = 96 }
 
 [[adapt]]
 note = "carte graphique intégrée"
@@ -610,5 +666,5 @@ set = { SHADOW_QUALITY = "2", shadowDistance = "128.0", WATER_REFLECT_QUALITY = 
 
 [presets.haut.files."config/iris.properties"]
 format = "properties"
-set = { maxShadowRenderDistance = "10" }   # chunks rendus pour les ombres (Iris : 32)
+set = { maxShadowRenderDistance = "8" }   # chunks rendus pour les ombres : 8 = les 128 blocs de MEDIUM (10 avant le 28/09 ; passe d'ombres = 11 % du rendu)
 
