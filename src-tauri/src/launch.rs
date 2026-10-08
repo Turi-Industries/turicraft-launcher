@@ -368,6 +368,12 @@ pub async fn launch(
         cmd.env("SHIM_MCCOMPAT", "0x800000001");
         prefer_dedicated_gpu(&prepared.java, r);
     }
+    // Intel hybride : tout le jeu sur les cœurs rapides.
+    #[cfg(target_os = "linux")]
+    if let Some(cores) = hardware::performance_cores() {
+        r.log(&format!("processeur hybride : jeu limité aux cœurs rapides {cores:?}"));
+        hardware::pin_to_cores(&mut cmd, cores);
+    }
     let mut child = cmd.spawn().context("lancement de Java")?;
     // Remis à 0 quand `launch` se termine, ou est abandonnée (« Arrêter »).
     struct PidGuard;

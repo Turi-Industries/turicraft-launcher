@@ -187,6 +187,47 @@ fn gpu() -> (String, bool, f64) {
     ("carte graphique inconnue".into(), false, 0.0)
 }
 
+/// Intel hybride (12e génération et plus, Linux) : les cœurs rapides (P).
+/// `None` sur tout autre processeur, ou si les cœurs lents (E) sont coupés.
+/// Le noyau y promène le fil de rendu du jeu sur les cœurs lents (3,8 GHz
+/// contre 4,9 sur un i7-12700K) : un cœur saturé qui ralentit d'un coup.
+#[cfg(target_os = "linux")]
+pub fn performance_cores() -> Option<Vec<usize>> {
+    let read = |f: &str| std::fs::read_to_string(format!("/sys/devices/{f}/cpus")).ok().map(|s| parse_cpu_list(&s));
+    let (p, e) = (read("cpu_core")?, read("cpu_atom")?);
+    (!p.is_empty() && !e.is_empty()).then_some(p)
+}
+
+/// Pose l'affinité avant `exec` : chaque fil de Java en hérite, fil de
+/// rendu compris (posée après coup, seul le fil principal la prendrait).
+/// Un échec est sans conséquence : le jeu part sur tous les cœurs.
+#[cfg(target_os = "linux")]
+pub fn pin_to_cores(cmd: &mut tokio::process::Command, cores: Vec<usize>) {
+    // SAFETY : entre fork et exec, seulement des appels sans allocation.
+    unsafe {
+        cmd.pre_exec(move || {
+            let mut set: libc::cpu_set_t = std::mem::zeroed();
+            for &c in cores.iter().filter(|&&c| c < libc::CPU_SETSIZE as usize) {
+                libc::CPU_SET(c, &mut set);
+            }
+            libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set);
+            Ok(())
+        });
+    }
+}
+
+/// Liste de processeurs du noyau : « 0-15 », « 0-7,16,18-19 ».
+pub fn parse_cpu_list(s: &str) -> Vec<usize> {
+    s.trim()
+        .split(',')
+        .filter_map(|part| match part.split_once('-') {
+            Some((a, b)) => Some(a.trim().parse().ok()?..=b.trim().parse().ok()?),
+            None => part.trim().parse().ok().map(|n| n..=n),
+        })
+        .flatten()
+        .collect()
+}
+
 /// Espace libre (Go) sur le disque qui porte `path` : celui dont le point de
 /// montage est le plus long préfixe du chemin.
 pub fn disk_free_gb(path: &std::path::Path) -> Option<f64> {
@@ -198,4 +239,26 @@ pub fn disk_free_gb(path: &std::path::Path) -> Option<f64> {
         .filter(|d| target.starts_with(d.mount_point()))
         .max_by_key(|d| d.mount_point().as_os_str().len())
         .map(|d| d.available_space() as f64 / 1024f64.powi(3))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_cpu_list;
+
+    #[test]
+    fn liste_de_processeurs() {
+        assert_eq!(parse_cpu_list("0-15\n"), (0..=15).collect::<Vec<_>>());
+        assert_eq!(parse_cpu_list("0-3,8,10-11"), vec![0, 1, 2, 3, 8, 10, 11]);
+        assert!(parse_cpu_list("\n").is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn affinite_heritee_par_le_processus_lance() {
+        let mut cmd = tokio::process::Command::new("grep");
+        cmd.args(["Cpus_allowed_list", "/proc/self/status"]);
+        super::pin_to_cores(&mut cmd, vec![0]);
+        let out = String::from_utf8(cmd.output().await.unwrap().stdout).unwrap();
+        assert_eq!(out.split_whitespace().next_back(), Some("0"));
+    }
 }

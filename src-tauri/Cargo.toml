@@ -55,6 +55,11 @@ flate2 = "1"
 md-5 = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
 
+# Linux : affinité du jeu sur les cœurs rapides (launch.rs). Déjà tirée par
+# Tauri : même version que Cargo.lock.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 # Windows : réduire la mémoire de WebView2 pendant que le jeu tourne
 # (lib.rs, webview_memory). Mêmes versions que celles de Tauri (Cargo.lock).
 [target.'cfg(windows)'.dependencies]
